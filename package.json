@@ -10,6 +10,9 @@
     "backend:dev": "echo 'removed'",
     "backend:build": "echo 'removed'"
   },
+  "engines": {
+    "pnpm": "9.x"
+  },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
     "@prisma/adapter-pg": "^7.1.0",
