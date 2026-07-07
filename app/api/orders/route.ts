@@ -3,25 +3,39 @@ import { requireAuth } from "@/lib/server/auth";
 import { json, error } from "@/lib/server/utils/response";
 import { OrderService } from "@/lib/server/services/order.service";
 import { prisma } from "@/lib/server/prisma";
+import { getRedisService } from "@/lib/server/services/redis.service";
 
 export const runtime = "nodejs";
+
+const redis = getRedisService();
+const ORDERS_CACHE_TTL = 45;
 
 export async function GET(req: NextRequest) {
   try {
     const session = await requireAuth();
+    const userId = session.user.id;
     const { searchParams } = new URL(req.url);
     const page = Number(searchParams.get("page") || 1);
     const limit = Number(searchParams.get("limit") || 20);
+
+    // Filter parameters for cache key + query
+    const status = searchParams.get("status") || "all";
+    const search = searchParams.get("search") || "";
+    const startDate = searchParams.get("startDate") || "";
+    const endDate = searchParams.get("endDate") || "";
+
+    const filterKey = `${status}:${search}:${startDate}:${endDate}`;
+
+    // Short-lived per-user per-filter cache (dramatically cuts repeated FOT + CPU on list reloads)
+    const cached = await redis.getUserOrders(userId, page, limit, filterKey);
+    if (cached) {
+      return json({ ok: true, data: cached });
+    }
+
     const skip = (page - 1) * limit;
 
-    // Filter parameters
-    const status = searchParams.get("status");
-    const search = searchParams.get("search");
-    const startDate = searchParams.get("startDate");
-    const endDate = searchParams.get("endDate");
-
     // Build where clause
-    const where: any = { userId: session.user.id };
+    const where: any = { userId };
 
     if (status && status !== "all") {
       where.status = status;
@@ -55,13 +69,15 @@ export async function GET(req: NextRequest) {
       }),
       prisma.order.count({ where }),
     ]);
-    return json({
-      ok: true,
-      data: {
-        orders,
-        pagination: { page, limit, total, pages: Math.ceil(total / limit) },
-      },
-    });
+
+    const result = {
+      orders,
+      pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+    };
+
+    await redis.setUserOrders(userId, page, limit, filterKey, result, ORDERS_CACHE_TTL);
+
+    return json({ ok: true, data: result });
   } catch (e) {
     if (e instanceof Error && e.message === "Unauthorized")
       return error("Unauthorized", 401);
@@ -126,6 +142,16 @@ export async function POST(req: NextRequest) {
 
     console.log("6. ✅ Order created successfully:", result);
     console.log("=== POST /api/orders END (SUCCESS) ===");
+
+    // Bust relevant user caches so lists/stats/balance update immediately
+    try {
+      await redis.invalidateUserBalance(session.user.id);
+      // Rough invalidation for stats (the key includes days)
+      const statKeys = await redis.keys(`user:stats:${session.user.id}:*`);
+      if (statKeys.length) await redis.del(...statKeys);
+      // Orders list will be slightly stale for 45s max — acceptable
+    } catch {}
+
     return json({ ok: true, data: result });
   } catch (e) {
     console.error("=== POST /api/orders ERROR ===");

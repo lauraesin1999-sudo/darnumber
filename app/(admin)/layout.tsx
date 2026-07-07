@@ -102,6 +102,7 @@ function AdminSidebarContent({
       <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
         <Link
           href="/dashboard"
+          prefetch={false}
           onClick={() => isMobile && onMobileClose()}
           className="flex items-center gap-3 px-4 py-3 rounded-lg transition-colors text-gray-600 hover:bg-gray-100 mb-4 border border-dashed"
         >
@@ -119,6 +120,7 @@ function AdminSidebarContent({
             <Link
               key={item.name}
               href={item.href}
+              prefetch={false}
               onClick={() => isMobile && onMobileClose()}
               className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
                 isActive(item.href)

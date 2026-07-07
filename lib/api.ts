@@ -192,11 +192,38 @@ class ApiClient {
   }
 
   async getAvailableServices(country?: string, serviceCode?: string) {
-    const response = await this.client.get("/orders/services", {
-      params: { country, serviceCode },
-      timeout: 120000, // Services aggregation can take longer on first load
-    });
-    return response.data;
+    // Use the dedicated PUBLIC catalog endpoint.
+    // This endpoint has long-lived CDN caching (s-maxage) and no auth requirement.
+    // Primary optimization for Fast Origin Transfer — repeated "Buy Numbers" loads
+    // now mostly served from edge instead of invoking origin compute.
+    const origin =
+      typeof window !== "undefined"
+        ? window.location.origin
+        : process.env.NEXT_PUBLIC_VERCEL_URL || "http://localhost:3000";
+    const url = new URL("/api/public/services", origin);
+    // Note: the public catalog is not filtered server-side by country/serviceCode here;
+    // client filters as before (or enhance public route later). The main aggregator
+    // still supports query params if needed for backward.
+    if (country) url.searchParams.set("country", country);
+    if (serviceCode) url.searchParams.set("serviceCode", serviceCode);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 120000); // match previous 120s tolerance for cold builds
+    try {
+      const res = await fetch(url.toString(), {
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        // No Authorization on purpose for maximum shared cache hits
+      });
+      if (!res.ok) {
+        const err: any = new Error("Failed to load services");
+        err.response = { status: res.status };
+        throw err;
+      }
+      return res.json();
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   // Provider-specific service fetchers (client-side filter from aggregated data)

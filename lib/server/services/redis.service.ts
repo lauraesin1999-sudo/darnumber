@@ -96,6 +96,67 @@ export class RedisService {
     const key = `user:balance:${userId}`;
     await this.del(key);
   }
+
+  // Generic helpers for JSON caching
+  async getJSON<T>(key: string): Promise<T | null> {
+    const cached = await this.get(key);
+    if (!cached) return null;
+    try {
+      return JSON.parse(cached) as T;
+    } catch {
+      return null;
+    }
+  }
+
+  async setJSON(key: string, value: unknown, ttlSeconds?: number) {
+    await this.set(key, JSON.stringify(value), ttlSeconds);
+  }
+
+  // User stats cache (more expensive aggregation)
+  async getUserStats(userId: string) {
+    return this.getJSON(`user:stats:${userId}`);
+  }
+  async setUserStats(userId: string, stats: unknown, ttl = 90) {
+    await this.setJSON(`user:stats:${userId}`, stats, ttl);
+  }
+  async invalidateUserStats(userId: string) {
+    await this.del(`user:stats:${userId}`);
+  }
+
+  // Admin analytics cache (expensive aggregates across whole DB)
+  async getAdminDashboard(days: number) {
+    return this.getJSON(`admin:dashboard:${days}`);
+  }
+  async setAdminDashboard(days: number, data: unknown, ttl = 300) { // 5 min
+    await this.setJSON(`admin:dashboard:${days}`, data, ttl);
+  }
+  async invalidateAdminDashboard() {
+    const keys = await this.keys("admin:dashboard:*");
+    if (keys.length) await this.del(...keys);
+  }
+
+  // Raw provider service lists (expensive external calls)
+  async getProviderServices(provider: string) {
+    return this.getJSON<any[]>(`provider:services:${provider}`);
+  }
+  async setProviderServices(provider: string, services: any[], ttl = 7200) { // 2 hours
+    await this.setJSON(`provider:services:${provider}`, services, ttl);
+  }
+
+  // User-scoped lists (short TTL because they change but repeated loads happen)
+  async getUserOrders(userId: string, page: number, limit: number, filterKey: string) {
+    return this.getJSON(`user:orders:${userId}:${page}:${limit}:${filterKey}`);
+  }
+  async setUserOrders(userId: string, page: number, limit: number, filterKey: string, data: unknown, ttl = 45) {
+    await this.setJSON(`user:orders:${userId}:${page}:${limit}:${filterKey}`, data, ttl);
+  }
+
+  async getUserTransactions(userId: string, page: number, limit: number, filterKey: string) {
+    return this.getJSON(`user:tx:${userId}:${page}:${limit}:${filterKey}`);
+  }
+  async setUserTransactions(userId: string, page: number, limit: number, filterKey: string, data: unknown, ttl = 60) {
+    await this.setJSON(`user:tx:${userId}:${page}:${limit}:${filterKey}`, data, ttl);
+  }
 }
 
 let redisInstance: RedisService | null = null;

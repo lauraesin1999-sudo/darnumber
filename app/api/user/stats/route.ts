@@ -2,19 +2,31 @@ import { NextRequest } from "next/server";
 import { json, error } from "@/lib/server/utils/response";
 import { requireAuth } from "@/lib/server/auth";
 import { prisma } from "@/lib/server/prisma";
+import { getRedisService } from "@/lib/server/services/redis.service";
 
 export const runtime = "nodejs";
+
+const redis = getRedisService();
+const STATS_CACHE_TTL = 120; // 2 minutes - stats are expensive but can be slightly stale
 
 export async function GET(req: NextRequest) {
   try {
     const session = await requireAuth();
     const userId = session.user.id;
 
-    console.log("[Route][User][Stats] Starting fetch for userId:", userId);
-
     // Get query parameters for date filtering
     const sp = new URL(req.url).searchParams;
     const days = Number(sp.get("days") || 30);
+
+    // Check Redis cache first (key includes days for different filters)
+    const cacheKey = `user:stats:${userId}:${days}`;
+    const cached = await redis.getJSON<any>(cacheKey);
+    if (cached) {
+      return json({ ok: true, data: cached });
+    }
+
+    console.log("[Route][User][Stats] Starting fetch for userId:", userId);
+
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
 
@@ -202,6 +214,9 @@ export async function GET(req: NextRequest) {
       totalOrders,
       totalTransactions,
     });
+
+    // Cache result
+    await redis.setJSON(cacheKey, stats, STATS_CACHE_TTL);
 
     return json({
       ok: true,

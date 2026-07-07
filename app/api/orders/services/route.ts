@@ -11,7 +11,7 @@ export const runtime = "nodejs";
 
 const redis = getRedisService();
 const SERVICES_CACHE_KEY = "orders:services:aggregated:v2";
-const SERVICES_CACHE_TTL_SECONDS = 30 * 60; // 30 min — amortises the expensive build cost
+const SERVICES_CACHE_TTL_SECONDS = 90 * 60; // 90 min — amortises the expensive external fetches + processing (tune based on price volatility)
 const PROVIDER_FETCH_TIMEOUT_MS = 25000;
 
 // TextVerified baseline USD used during the aggregated build.
@@ -104,24 +104,37 @@ async function buildAndCacheServices(): Promise<AggregatedServicesPayload | null
 
       const servicesMap = new Map<string, any>();
 
-      console.log("[Build] Fetching provider services in parallel...");
+      console.log("[Build] Fetching provider services in parallel (with Redis sub-caching)...");
       const [smsManResult, tvResult] = await Promise.allSettled([
         withTimeout(
           (async () => {
-            console.log("[SMSMan] Fetching services...");
+            // Check sub-cache first to avoid expensive external calls on every rebuild
+            const cached = await redis.getProviderServices("sms-man");
+            if (cached && Array.isArray(cached) && cached.length > 0) {
+              console.log(`[SMSMan] ✓ Using Redis sub-cache (${cached.length} services)`);
+              return cached;
+            }
+            console.log("[SMSMan] Fetching services from provider...");
             const smsManService = new SMSManService();
             const services = await smsManService.getAvailableServices();
             console.log(
               `[SMSMan] ✓ Fetched ${services.length} services (RUB pricing)`,
             );
+            // Cache raw for 2h to amortize slow provider calls
+            await redis.setProviderServices("sms-man", services, 7200);
             return services;
           })(),
           "SMS-Man service fetch",
-          60 * 1000, // 60s — sub-caches are warmed at startup; cold-start tolerance
+          60 * 1000,
         ),
         withTimeout(
           (async () => {
-            console.log("[TextVerified] Fetching service list...");
+            const cached = await redis.getProviderServices("textverified");
+            if (cached && Array.isArray(cached) && cached.length > 0) {
+              console.log(`[TextVerified] ✓ Using Redis sub-cache (${cached.length} services)`);
+              return cached;
+            }
+            console.log("[TextVerified] Fetching service list from provider...");
             const textVerifiedService = new TextVerifiedService();
             const basicServices =
               await textVerifiedService.getAvailableServices();
@@ -132,6 +145,7 @@ async function buildAndCacheServices(): Promise<AggregatedServicesPayload | null
             console.log(
               `[TextVerified] ✓ Fetched ${services.length} services (baseline pricing)`,
             );
+            await redis.setProviderServices("textverified", services, 7200);
             return services;
           })(),
           "TextVerified service fetch",
@@ -346,14 +360,24 @@ async function buildAndCacheServices(): Promise<AggregatedServicesPayload | null
   return refreshPromise;
 }
 
+// Export for the public catalog route so it can trigger population on cold cache
+export { buildAndCacheServices };
+
+export const revalidate = 3600; // 1h CDN revalidation for the public services catalog
+
 export async function GET() {
   console.log("\n╔════════════════════════════════════════════════╗");
-  console.log("║   GET /api/orders/services - Provider Aggregator");
+  console.log("║   GET /api/orders/services - Provider Aggregator (public catalog)");
   console.log("╚════════════════════════════════════════════════╝");
   try {
-    console.log("[Auth] Authenticating user...");
-    const authResult = await requireAuth();
-    console.log(`[Auth] ✓ User ${authResult?.user?.email} authenticated`);
+    // Catalog is not user-specific. Make auth optional so CDN can cache the response globally.
+    // Logged-in users still get the data; unauthenticated also works for the buy flow.
+    try {
+      const authResult = await requireAuth();
+      console.log(`[Auth] ✓ User ${authResult?.user?.email} authenticated (optional)`);
+    } catch {
+      console.log("[Auth] Serving public catalog (no auth)");
+    }
 
     // ── Stale-while-revalidate cache ─────────────────────────────────────────
     // Always return cached data immediately. If the data is older than
@@ -398,10 +422,14 @@ export async function GET() {
           const { cachedAt, ...rest } = JSON.parse(
             freshCacheData.data,
           ) as Record<string, unknown> & { cachedAt?: number };
-          return json({ ok: true, data: rest });
+          return json({ ok: true, data: rest }, {
+            headers: { "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400" },
+          });
         }
         if (rebuilt) {
-          return json({ ok: true, data: rebuilt });
+          return json({ ok: true, data: rebuilt }, {
+            headers: { "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400" },
+          });
         }
         return error(
           "No services available from providers. Please check API keys and try again.",
@@ -425,7 +453,11 @@ export async function GET() {
         );
       }
       console.log("╚════════════════════════════════════════════════╝\n");
-      return json({ ok: true, data: clientPayload });
+      return json({ ok: true, data: clientPayload }, {
+        headers: {
+          "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400",
+        },
+      });
     };
 
     try {
@@ -452,7 +484,9 @@ export async function GET() {
         "[Cache] Serving uncached fallback payload (cache write skipped)",
       );
       console.log("╚════════════════════════════════════════════════╝\n");
-      return json({ ok: true, data: built });
+      return json({ ok: true, data: built }, {
+        headers: { "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400" },
+      });
     }
 
     // Both providers returned empty sets
