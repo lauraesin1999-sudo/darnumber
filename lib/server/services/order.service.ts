@@ -404,8 +404,14 @@ export class OrderService {
     country: string,
   ) {
     const cacheKey = `pricing:${providerId}:${serviceCode}:${country}`;
-    const cached = await redis.get(cacheKey);
-    if (cached) return JSON.parse(cached);
+
+    // Cache read is best-effort — failure falls through to DB
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached) return JSON.parse(cached);
+    } catch {
+      // Redis unavailable — continue to DB
+    }
 
     const providerPrice = await prisma.providerPrice.findFirst({
       where: { providerId, serviceCode, country },
@@ -437,28 +443,37 @@ export class OrderService {
     }
     const finalPrice = Number(providerPrice.baseCost) + profit;
     const pricing = { baseCost: providerPrice.baseCost, profit, finalPrice };
-    await redis.set(cacheKey, JSON.stringify(pricing), 300);
+    // Cache write is fire-and-forget
+    redis.set(cacheKey, JSON.stringify(pricing), 300).catch(() => {});
     return pricing;
   }
 
   async getOrderStatus(orderId: string) {
     console.log("[OrderService] getOrderStatus ->", { orderId });
 
-    const cached = await redis.getOrderStatus(orderId);
-    if (cached) {
-      console.log("[OrderService] cache hit", cached);
-      // If status is WAITING_FOR_SMS, try to opportunistically refresh code
-      if (cached.status === "WAITING_FOR_SMS" && !cached.smsCode) {
-        await this.tryFetchAndUpdateSmsCode(
-          orderId,
-          cached.provider,
-          cached.externalId,
-        );
-        // Re-fetch after possible update
-        const refreshed = await redis.getOrderStatus(orderId);
-        if (refreshed) return refreshed;
+    // Cache read is best-effort — fall through to DB on Redis failure
+    try {
+      const cached = await redis.getOrderStatus(orderId);
+      if (cached) {
+        console.log("[OrderService] cache hit", cached);
+        if (cached.status === "WAITING_FOR_SMS" && !cached.smsCode) {
+          await this.tryFetchAndUpdateSmsCode(
+            orderId,
+            cached.provider,
+            cached.externalId,
+          );
+          try {
+            const refreshed = await redis.getOrderStatus(orderId);
+            if (refreshed) return refreshed;
+          } catch {
+            // Redis unavailable — fall through to DB fetch below
+          }
+        } else {
+          return cached;
+        }
       }
-      return cached;
+    } catch {
+      // Redis unavailable — fall through to DB
     }
 
     let order = await prisma.order.findUnique({
@@ -629,7 +644,8 @@ export class OrderService {
       provider: order.providerId,
     } as any;
     delete (payload as any).providerId;
-    await redis.setOrderStatus(orderId, payload, 300);
+    // Cache write is fire-and-forget — order status must be readable even if Redis is down
+    redis.setOrderStatus(orderId, payload, 300).catch(() => {});
     console.log("[OrderService] getOrderStatus payload", payload);
     return payload;
   }
@@ -846,7 +862,8 @@ export class OrderService {
         if (updated) {
           const payload = { ...updated, provider: updated.providerId };
           delete (payload as any).providerId;
-          await redis.setOrderStatus(orderId, payload, 300);
+          // Fire-and-forget — the DB is the source of truth
+          redis.setOrderStatus(orderId, payload, 300).catch(() => {});
         }
       }
     } catch (e) {
@@ -1259,17 +1276,24 @@ export class SMSManService {
 
   private async getApplications(): Promise<{ id: string; code: string }[]> {
     const cacheKey = "smsman:applications";
-    const cached = await redis.get(cacheKey);
-    if (cached) return JSON.parse(cached);
+
+    // Cache read is best-effort — fall through to live API on failure
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached) return JSON.parse(cached);
+    } catch {
+      // Redis unavailable — continue to live API
+    }
 
     const res = await fetch(`${this.apiUrl}/applications?token=${this.apiKey}`);
     const data = await res.json();
     const applications = Object.values(data).map((a: any) => ({
       id: a.id,
-      code: a.slug || a.code, // 'slug' is often the code we need
+      code: a.slug || a.code,
     }));
 
-    await redis.set(cacheKey, JSON.stringify(applications), 60 * 60 * 24); // Cache for 24 hours
+    // Cache write is fire-and-forget
+    redis.set(cacheKey, JSON.stringify(applications), 60 * 60 * 24).catch(() => {});
     return applications;
   }
 
@@ -1279,10 +1303,15 @@ export class SMSManService {
    */
   private async getCountries(): Promise<Map<string, string>> {
     const cacheKey = "smsman:countries";
-    const cached = await redis.get(cacheKey);
-    if (cached) {
-      // Convert cached object back to Map
-      return new Map(Object.entries(JSON.parse(cached)));
+
+    // Cache read is best-effort — fall through to live API on failure
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        return new Map(Object.entries(JSON.parse(cached)));
+      }
+    } catch {
+      // Redis unavailable — continue to live API
     }
 
     console.log("[SMSManService] Fetching countries from API...");
@@ -1294,12 +1323,9 @@ export class SMSManService {
 
     const data = await res.json();
 
-    // Build reverse mapping: ISO code -> SMS-Man ID
     const countryMap = new Map<string, string>();
-
     Object.entries(data).forEach(([id, country]: [string, any]) => {
       if (country.code) {
-        // SMS-Man returns country codes like "ru", "us" - normalize to uppercase
         const isoCode = country.code.toUpperCase();
         countryMap.set(isoCode, id);
       }
@@ -1307,12 +1333,10 @@ export class SMSManService {
 
     console.log(`[SMSManService] Cached ${countryMap.size} countries from API`);
 
-    // Cache as object (Maps don't serialize directly)
-    await redis.set(
-      cacheKey,
-      JSON.stringify(Object.fromEntries(countryMap)),
-      60 * 60 * 24, // Cache for 24 hours
-    );
+    // Cache write is fire-and-forget
+    redis
+      .set(cacheKey, JSON.stringify(Object.fromEntries(countryMap)), 60 * 60 * 24)
+      .catch(() => {});
 
     return countryMap;
   }

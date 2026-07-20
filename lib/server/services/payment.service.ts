@@ -376,7 +376,8 @@ export class PaymentService {
         "amount=",
         amountPaid,
       );
-      await redis.invalidateUserBalance(userId);
+      // Fire-and-forget: cache bust is best-effort — the DB is already committed
+      redis.invalidateUserBalance(userId).catch(() => {});
       return {
         success: true,
         status: "success",
@@ -460,7 +461,8 @@ export class PaymentService {
         "amount=",
         amountPaid,
       );
-      await redis.invalidateUserBalance(userId);
+      // Fire-and-forget: cache bust is best-effort — the DB is already committed
+      redis.invalidateUserBalance(userId).catch(() => {});
       return {
         success: true,
         status: "success",
@@ -525,7 +527,8 @@ export class PaymentService {
       });
     });
 
-    await redis.invalidateUserBalance(userId);
+    // Fire-and-forget: cache bust is best-effort — the DB is already committed
+    redis.invalidateUserBalance(userId).catch(() => {});
     return {
       message:
         "Withdrawal request submitted. Processing time: 1-3 business days",
@@ -577,7 +580,8 @@ export class PaymentService {
         },
       });
     });
-    await redis.invalidateUserBalance(userId);
+    // Fire-and-forget: cache bust is best-effort — the DB is already committed
+    redis.invalidateUserBalance(userId).catch(() => {});
     console.log(
       "[Payments][Deposit] Completed",
       "userId=",
