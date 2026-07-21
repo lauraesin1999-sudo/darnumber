@@ -1419,10 +1419,15 @@ export class SMSManService {
     };
   }
 
-  private async getApplications(): Promise<{ id: string; code: string }[]> {
-    const cacheKey = "smsman:applications";
+  /**
+   * Public applications list (code + display name). Small payload used for the
+   * fast services catalog so the buy page doesn't wait on full get-prices.
+   */
+  async listApplications(): Promise<
+    Array<{ id: string; code: string; name: string }>
+  > {
+    const cacheKey = "smsman:applications:full";
 
-    // Cache read is best-effort — fall through to live API on failure
     try {
       const cached = await redis.get(cacheKey);
       if (cached) return JSON.parse(cached);
@@ -1430,16 +1435,32 @@ export class SMSManService {
       // Redis unavailable — continue to live API
     }
 
-    const res = await fetch(`${this.apiUrl}/applications?token=${this.apiKey}`);
-    const data = await res.json();
-    const applications = Object.values(data).map((a: any) => ({
-      id: a.id,
-      code: a.slug || a.code,
-    }));
+    if (!this.apiKey) throw new Error("SMS-Man API key not configured");
 
-    // Cache write is fire-and-forget
-    redis.set(cacheKey, JSON.stringify(applications), 60 * 60 * 24).catch(() => {});
+    const res = await fetch(`${this.apiUrl}/applications?token=${this.apiKey}`);
+    if (!res.ok) {
+      throw new Error(`SMS-Man applications API returned ${res.status}`);
+    }
+    const data = await res.json();
+    const applications = Object.values(data)
+      .map((a: any) => ({
+        id: String(a.id),
+        // Prefer `code` to match getAvailableServices() / prices mapping
+        code: String(a.code || a.slug || `app_${a.id}`),
+        name: String(a.title || a.name || a.code || a.slug || `app_${a.id}`),
+      }))
+      .filter((a) => a.code);
+
+    redis
+      .set(cacheKey, JSON.stringify(applications), 60 * 60 * 24)
+      .catch(() => {});
     return applications;
+  }
+
+  private async getApplications(): Promise<{ id: string; code: string }[]> {
+    // Reuse the richer list (same Redis key family); map down to id+code.
+    const full = await this.listApplications();
+    return full.map((a) => ({ id: a.id, code: a.code }));
   }
 
   /**

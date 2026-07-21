@@ -191,29 +191,26 @@ class ApiClient {
     return response.data;
   }
 
-  async getAvailableServices(country?: string, serviceCode?: string) {
-    // Use the dedicated PUBLIC catalog endpoint.
-    // This endpoint has long-lived CDN caching (s-maxage) and no auth requirement.
-    // Primary optimization for Fast Origin Transfer — repeated "Buy Numbers" loads
-    // now mostly served from edge instead of invoking origin compute.
+  /**
+   * Lightweight unique-service catalog (code, name, providers, exchange rate).
+   * Does NOT include the full service×country price matrix (~54MB previously).
+   * Use getServiceCountries() when the user picks a service.
+   */
+  async getAvailableServices() {
     const origin =
       typeof window !== "undefined"
         ? window.location.origin
         : process.env.NEXT_PUBLIC_VERCEL_URL || "http://localhost:3000";
     const url = new URL("/api/public/services", origin);
-    // Note: the public catalog is not filtered server-side by country/serviceCode here;
-    // client filters as before (or enhance public route later). The main aggregator
-    // still supports query params if needed for backward.
-    if (country) url.searchParams.set("country", country);
-    if (serviceCode) url.searchParams.set("serviceCode", serviceCode);
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 120000); // match previous 120s tolerance for cold builds
+    // Cold catalog build can still take a while on first hit after deploy
+    const timeout = setTimeout(() => controller.abort(), 120000);
     try {
       const res = await fetch(url.toString(), {
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
-        // No Authorization on purpose for maximum shared cache hits
+        // No Authorization — shared CDN cache hits across users
       });
       if (!res.ok) {
         const err: any = new Error("Failed to load services");
@@ -226,9 +223,40 @@ class ApiClient {
     }
   }
 
-  // Provider-specific service fetchers (client-side filter from aggregated data)
-  async getSmsManServices(country?: string, serviceCode?: string) {
-    const data = await this.getAvailableServices(country, serviceCode);
+  /**
+   * Countries + prices for one service under one provider.
+   * Progressive loading: call only after the user selects a service.
+   */
+  async getServiceCountries(serviceCode: string, provider: string) {
+    const origin =
+      typeof window !== "undefined"
+        ? window.location.origin
+        : process.env.NEXT_PUBLIC_VERCEL_URL || "http://localhost:3000";
+    const url = new URL("/api/public/services/countries", origin);
+    url.searchParams.set("serviceCode", serviceCode);
+    url.searchParams.set("provider", provider);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    try {
+      const res = await fetch(url.toString(), {
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        const err: any = new Error("Failed to load countries for service");
+        err.response = { status: res.status };
+        throw err;
+      }
+      return res.json();
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  // Provider-specific service fetchers (client-side filter from catalog)
+  async getSmsManServices() {
+    const data = await this.getAvailableServices();
     const services = (data?.data?.services || []).filter((s: any) =>
       (s.providers || []).some(
         (p: any) => p.name === "sms-man" || p.id === "lion",
@@ -237,8 +265,8 @@ class ApiClient {
     return { ok: true, data: { services } };
   }
 
-  async getTextVerifiedServices(country?: string, serviceCode?: string) {
-    const data = await this.getAvailableServices(country, serviceCode);
+  async getTextVerifiedServices() {
+    const data = await this.getAvailableServices();
     const services = (data?.data?.services || []).filter((s: any) =>
       (s.providers || []).some(
         (p: any) => p.name === "textverified" || p.id === "panda",

@@ -43,15 +43,20 @@ interface ServiceUi {
   logo?: ReactNode | string;
 }
 
+/** Unique service from the lightweight catalog (no country expansion). */
 interface Service {
   code: string;
   name: string;
-  country: string;
-  price: number;
-  providers: Provider[];
+  providers: Array<{ id: string; name: string; displayName: string }>;
   ui?: ServiceUi;
   capability?: string;
-  prices?: Record<string, number>;
+}
+
+interface CountryOption {
+  code: string;
+  name: string;
+  priceUsd: number;
+  priceNgn: number;
 }
 
 const FALLBACK_USD_TO_NGN = 1600;
@@ -60,6 +65,7 @@ export default function NewOrderPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  /** Unique services catalog (not the old full service×country matrix). */
   const [allServices, setAllServices] = useState<Service[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [selectedService, setSelectedService] = useState("");
@@ -78,6 +84,9 @@ export default function NewOrderPage() {
   const [usdToNgn, setUsdToNgn] = useState<number>(FALLBACK_USD_TO_NGN);
   const [tvExactPriceUsd, setTvExactPriceUsd] = useState<number | null>(null);
   const [tvPriceLoading, setTvPriceLoading] = useState(false);
+  /** Countries for the currently selected service+provider (loaded on demand). */
+  const [serviceCountries, setServiceCountries] = useState<CountryOption[]>([]);
+  const [countriesLoading, setCountriesLoading] = useState(false);
 
   const deferredServiceSearch = useDeferredValue(serviceSearch);
   const deferredCountrySearch = useDeferredValue(countrySearch);
@@ -176,14 +185,14 @@ export default function NewOrderPage() {
 
   const fetchData = async () => {
     try {
-      console.log("[NewOrderPage] ========== FETCHING DATA ==========");
+      console.log("[NewOrderPage] ========== FETCHING LIGHTWEIGHT CATALOG ==========");
 
-      const fetchServicesWithRetry = async () => {
+      const fetchCatalogWithRetry = async () => {
         try {
           return await api.getAvailableServices();
         } catch (firstError) {
           console.warn(
-            "[NewOrderPage] Services API first attempt failed, retrying once...",
+            "[NewOrderPage] Catalog API first attempt failed, retrying once...",
             firstError,
           );
           await new Promise((resolve) => setTimeout(resolve, 700));
@@ -191,13 +200,13 @@ export default function NewOrderPage() {
         }
       };
 
-      // Fetch services and balance independently so one failure doesn't block the other
+      // Catalog + balance independently so one failure doesn't block the other
       let servicesRes: any = null;
       let balanceRes: any = null;
       let servicesError: any = null;
 
       const [sResult, bResult] = await Promise.allSettled([
-        fetchServicesWithRetry(),
+        fetchCatalogWithRetry(),
         api.getBalance(),
       ]);
 
@@ -205,7 +214,7 @@ export default function NewOrderPage() {
         servicesRes = sResult.value;
       } else {
         servicesError = sResult.reason;
-        console.warn("[NewOrderPage] Services API failed:", {
+        console.warn("[NewOrderPage] Catalog API failed:", {
           message: servicesError?.message || String(servicesError),
           status: servicesError?.response?.status,
           data: servicesError?.response?.data,
@@ -222,7 +231,6 @@ export default function NewOrderPage() {
         );
       }
 
-      // Always provide default providers so the cards render
       const defaultProviders: Provider[] = [
         {
           id: "lion",
@@ -239,54 +247,26 @@ export default function NewOrderPage() {
       ];
 
       if (servicesRes) {
-        console.log("[NewOrderPage] Raw servicesRes:", {
-          ok: servicesRes?.ok,
-          servicesCount: servicesRes?.data?.services?.length,
-          providersCount: servicesRes?.data?.providers?.length,
-          exchangeRate: servicesRes?.data?.exchangeRate,
-        });
-
         const services: Service[] = servicesRes?.data?.services || [];
         const providersFromApi: Provider[] = servicesRes?.data?.providers || [];
 
-        // Extract exchange rate from services response (set by backend)
         const apiRate = servicesRes?.data?.exchangeRate?.usdToNgn;
         if (apiRate && typeof apiRate === "number" && apiRate > 0) {
           console.log(
-            `[NewOrderPage] Exchange rate from services API: 1 USD = ₦${apiRate}`,
+            `[NewOrderPage] Exchange rate from catalog: 1 USD = ₦${apiRate}`,
           );
           setUsdToNgn(apiRate);
-        } else {
-          console.warn(
-            "[NewOrderPage] No exchange rate in services response, using current:",
-            usdToNgn,
-          );
         }
 
         console.log(
-          `[NewOrderPage] Loaded ${services.length} services from ${providersFromApi.length} providers`,
+          `[NewOrderPage] Loaded lightweight catalog: ${services.length} unique services, ${providersFromApi.length} providers`,
         );
-
-        // Log sample services for debugging
-        if (services.length > 0) {
-          const sample = services.slice(0, 3);
-          sample.forEach((s, i) => {
-            console.log(`[NewOrderPage] Sample service [${i}]:`, {
-              code: s.code,
-              name: s.name,
-              country: s.country,
-              price: s.price,
-              providers: s.providers.map((p) => ({ id: p.id, name: p.name })),
-            });
-          });
-        }
 
         setAllServices(services);
         setProviders(
           providersFromApi.length > 0 ? providersFromApi : defaultProviders,
         );
       } else {
-        // Services failed - still show the provider cards and a meaningful error
         setProviders(defaultProviders);
         const statusCode = servicesError?.response?.status;
         if (statusCode === 401) {
@@ -300,13 +280,11 @@ export default function NewOrderPage() {
         }
       }
 
-      // Set default provider
       if (!selectedProvider) {
         setSelectedProvider("lion");
       }
     } catch (error: any) {
       console.error("[NewOrderPage] Unexpected error in fetchData:", error);
-      // Still set providers so the UI doesn't look completely broken
       setProviders([
         {
           id: "lion",
@@ -328,65 +306,22 @@ export default function NewOrderPage() {
     }
   };
 
-  // Get unique service codes for the selected provider
+  // Unique services for the selected provider (catalog is already unique by code)
   const availableServices = useMemo(() => {
     if (!selectedProvider || !allServices.length) return [];
-
-    const serviceMap = new Map<string, Service>();
-
-    allServices.forEach((service) => {
-      const hasProvider = service.providers.some(
-        (p) => p.id === selectedProvider,
-      );
-      if (hasProvider && !serviceMap.has(service.code)) {
-        serviceMap.set(service.code, service);
-      }
-    });
-
-    return Array.from(serviceMap.values());
+    return allServices.filter((service) =>
+      service.providers.some((p) => p.id === selectedProvider),
+    );
   }, [allServices, selectedProvider]);
 
-  // Get available countries for selected service and provider
+  // Countries come from the on-demand endpoint (already priced),
+  // enriched with full names when the country map loads.
   const availableCountries = useMemo(() => {
-    if (!selectedService || !selectedProvider) return [];
-
-    const countries = allServices
-      .filter(
-        (s) =>
-          s.code === selectedService &&
-          s.providers.some((p) => p.id === selectedProvider),
-      )
-      .map((s) => {
-        // Backend sends prices with full markup already applied in NGN
-        // All prices from the services API are in USD with admin markup applied
-        const priceUsd = s.prices?.[selectedProvider] ?? s.price ?? 0;
-        const priceNgn = Math.ceil(
-          priceUsd * (usdToNgn || FALLBACK_USD_TO_NGN),
-        );
-
-        return {
-          code: s.country,
-          name:
-            countryNameByCode.get(String(s.country).toUpperCase()) || s.country,
-          priceUsd,
-          priceNgn,
-        };
-      });
-
-    console.log(
-      `[NewOrderPage] Available countries for ${selectedService}: ${countries.length}`,
-    );
-    if (countries.length > 0) {
-      console.log("[NewOrderPage] Sample country price:", countries[0]);
-    }
-    return countries;
-  }, [
-    allServices,
-    selectedService,
-    selectedProvider,
-    countryNameByCode,
-    usdToNgn,
-  ]);
+    return serviceCountries.map((c) => ({
+      ...c,
+      name: countryNameByCode.get(c.code) || c.name || c.code,
+    }));
+  }, [serviceCountries, countryNameByCode]);
 
   // Filter services based on search
   // Lightweight fuzzy search scoring
@@ -445,6 +380,8 @@ export default function NewOrderPage() {
   useEffect(() => {
     setSelectedService("");
     setSelectedCountry("");
+    setServiceCountries([]);
+    setTvExactPriceUsd(null);
   }, [selectedProvider]);
 
   // Reset country when service changes
@@ -452,8 +389,83 @@ export default function NewOrderPage() {
     setSelectedCountry("");
   }, [selectedService]);
 
+  // Progressive load: countries + prices for the selected service only
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!selectedService || !selectedProvider) {
+      setServiceCountries([]);
+      setCountriesLoading(false);
+      return;
+    }
+
+    const loadCountries = async () => {
+      try {
+        setCountriesLoading(true);
+        setServiceCountries([]);
+        console.log(
+          `[NewOrderPage] Loading countries for ${selectedService} / ${selectedProvider}...`,
+        );
+        const res = await api.getServiceCountries(
+          selectedService,
+          selectedProvider,
+        );
+        if (cancelled) return;
+
+        const rate =
+          res?.data?.exchangeRate?.usdToNgn &&
+          res.data.exchangeRate.usdToNgn > 0
+            ? res.data.exchangeRate.usdToNgn
+            : usdToNgn || FALLBACK_USD_TO_NGN;
+
+        if (
+          res?.data?.exchangeRate?.usdToNgn &&
+          res.data.exchangeRate.usdToNgn > 0
+        ) {
+          setUsdToNgn(res.data.exchangeRate.usdToNgn);
+        }
+
+        const countries: CountryOption[] = (res?.data?.countries || []).map(
+          (c: { code: string; name: string; priceUsd: number }) => {
+            const code = String(c.code || "").toUpperCase();
+            const name =
+              countryNameByCode.get(code) || c.name || code;
+            const priceUsd = Number(c.priceUsd) || 0;
+            return {
+              code,
+              name,
+              priceUsd,
+              priceNgn: Math.ceil(priceUsd * rate),
+            };
+          },
+        );
+
+        console.log(
+          `[NewOrderPage] Loaded ${countries.length} countries for ${selectedService}`,
+        );
+        setServiceCountries(countries);
+      } catch (e) {
+        if (!cancelled) {
+          console.warn("[NewOrderPage] Failed to load countries:", e);
+          setServiceCountries([]);
+          setError(
+            "Failed to load countries for this service. Please try again.",
+          );
+        }
+      } finally {
+        if (!cancelled) setCountriesLoading(false);
+      }
+    };
+
+    void loadCountries();
+    return () => {
+      cancelled = true;
+    };
+    // countryNameByCode is enrichment only; re-run when names arrive is optional
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedService, selectedProvider]);
+
   // Fetch exact TextVerified price only for the currently selected service.
-  // This keeps /api/orders/services fast while still giving accurate TV pricing.
   useEffect(() => {
     let cancelled = false;
     const isTextVerified = selectedProvider === "panda";
@@ -515,14 +527,12 @@ export default function NewOrderPage() {
     const service = allServices.find(
       (s) =>
         s.code === selectedService &&
-        s.country === selectedCountry &&
         s.providers.some((p) => p.id === selectedProvider),
     );
 
     if (!service) {
-      console.error("[NewOrderPage] Service not found in allServices for:", {
+      console.error("[NewOrderPage] Service not found in catalog for:", {
         code: selectedService,
-        country: selectedCountry,
         provider: selectedProvider,
       });
       toast.error("Service not found", "Please try selecting again.");
@@ -530,12 +540,14 @@ export default function NewOrderPage() {
       return;
     }
 
-    console.log("[NewOrderPage] Found service:", {
-      code: service.code,
-      name: service.name,
-      price: service.price,
-      prices: service.prices,
-    });
+    const countryRow = serviceCountries.find(
+      (c) => c.code === selectedCountry,
+    );
+    if (!countryRow && selectedProvider !== "panda") {
+      toast.error("Country not found", "Please re-select the country.");
+      setError("Country not found for this service");
+      return;
+    }
 
     if (balance < currentPriceNgn) {
       console.error("[NewOrderPage] Insufficient balance:", {
@@ -556,16 +568,14 @@ export default function NewOrderPage() {
 
     try {
       const provider = providers.find((p) => p.id === selectedProvider);
-      // Always charge in NGN (backend stores and operates in NGN)
       const price = currentPriceNgn;
 
       console.log("[NewOrderPage] Order price calculation:", {
-        servicePrice_USD: service.price,
-        providerPrice_USD: service.prices?.[selectedProvider],
+        countryPrice_USD: countryRow?.priceUsd,
+        tvExactPriceUsd,
         exchangeRate_USD_NGN: usdToNgn,
         finalPrice_NGN: price,
         providerName: provider?.name,
-        providerDisplayName: provider?.displayName,
       });
 
       if (!price || price <= 0) {
@@ -577,13 +587,6 @@ export default function NewOrderPage() {
         return;
       }
 
-      console.log("[NewOrderPage] Sending createOrder API call:", {
-        serviceCode: selectedService,
-        country: selectedCountry,
-        provider: provider?.name,
-        price_ngn: price,
-      });
-
       const response = await api.createOrder({
         serviceCode: selectedService,
         country: selectedCountry,
@@ -591,20 +594,10 @@ export default function NewOrderPage() {
         price: price, // NGN amount
       });
 
-      console.log(
-        "[NewOrderPage] createOrder response:",
-        JSON.stringify(response, null, 2),
-      );
-
       if (response.ok) {
-        console.log(
-          "[NewOrderPage] Order created successfully:",
-          response.data,
-        );
         toast.order.created(response.data.orderNumber);
         router.push(`/orders/${response.data.orderId}`);
       } else {
-        console.error("[NewOrderPage] Order creation failed:", response);
         toast.order.failed(response.error || "Failed to create order");
         setError(response.error || "Failed to create order");
       }
@@ -615,14 +608,12 @@ export default function NewOrderPage() {
         const e = err as {
           response?: { data?: { error?: { message: string } } };
         };
-        console.error("[NewOrderPage] Error response data:", e.response?.data);
         message = e.response?.data?.error?.message || message;
       }
       toast.order.failed(message);
       setError(message);
     } finally {
       setCreating(false);
-      console.log("[NewOrderPage] ========== SUBMIT ORDER END ==========");
     }
   };
 
@@ -638,13 +629,14 @@ export default function NewOrderPage() {
   const currentService = allServices.find(
     (s) =>
       s.code === selectedService &&
-      s.country === selectedCountry &&
       s.providers.some((p) => p.id === selectedProvider),
   );
   const currentProvider = providers.find((p) => p.id === selectedProvider);
+  const currentCountry = serviceCountries.find(
+    (c) => c.code === selectedCountry,
+  );
 
-  const aggregatedPriceUsd =
-    currentService?.prices?.[selectedProvider] ?? currentService?.price ?? 0;
+  const aggregatedPriceUsd = currentCountry?.priceUsd ?? 0;
   const currentPriceUsd =
     selectedProvider === "panda" && tvExactPriceUsd !== null
       ? tvExactPriceUsd
@@ -655,69 +647,38 @@ export default function NewOrderPage() {
   const waitingForTvPrice =
     selectedProvider === "panda" && !!selectedService && tvPriceLoading;
 
-  console.log("[NewOrderPage] Current price computation:", {
-    selectedService,
-    selectedCountry,
-    selectedProvider: currentProvider?.name,
-    rawPrice: currentService?.price,
-    providerPrice: currentService?.prices?.[selectedProvider],
-    tvExactPriceUsd,
-    tvPriceLoading,
-    currentPriceUsd,
-    usdToNgn,
-    currentPriceNgn,
-  });
-
-  const insufficientBalance = currentService && balance < currentPriceNgn;
+  const insufficientBalance =
+    !!selectedService &&
+    !!selectedCountry &&
+    currentPriceNgn > 0 &&
+    balance < currentPriceNgn;
 
   // Virtualized row renderer for services list
   // Note: This is a render function, NOT a React component - do NOT use hooks inside it
   const renderServiceRow = ({ index, style }: ListChildComponentProps) => {
     const service = filteredServices[index];
-    const isSelected = selectedService === service.code;
-
-    // All prices come from the services API in USD with admin markup
-    const priceUsd = service.price || 0;
-    const priceNgn = Math.ceil(priceUsd * (usdToNgn || FALLBACK_USD_TO_NGN));
 
     return (
       <div
         style={style}
-        key={`${service.code}-${service.country}`}
+        key={service.code}
         className="px-3 py-2 border-b last:border-b-0"
       >
         <button
           type="button"
           onClick={() => {
-            console.log(
-              "[NewOrderPage] Selected service:",
-              service.code,
-              service.name,
-              "price USD:",
-              priceUsd,
-              "price NGN:",
-              priceNgn,
-            );
             setSelectedService(service.code);
             setServiceDialogOpen(false);
           }}
           className="w-full flex items-center gap-3 text-left hover:bg-accent rounded-md px-2 py-2"
         >
-          <div
-            className={`w-6 h-6 rounded-md flex items-center justify-center text-xs bg-gray-200`}
-          >
+          <div className="w-6 h-6 rounded-md flex items-center justify-center text-xs bg-gray-200">
             📱
           </div>
-          <span className="font-medium truncate flex-1">{service.name}</span>
-          <div className="flex-shrink-0">
-            {priceNgn > 0 ? (
-              <div className="font-mono text-sm">
-                {/* ₦{priceNgn.toLocaleString()} */}✅
-              </div>
-            ) : (
-              <div className="text-xs text-muted-foreground">✅</div>
-            )}
-          </div>
+          <span className="font-medium truncate flex-1">
+            {service.ui?.displayName || service.name}
+          </span>
+          <div className="flex-shrink-0 text-xs text-muted-foreground">✅</div>
         </button>
       </div>
     );
@@ -726,7 +687,6 @@ export default function NewOrderPage() {
   // Virtualized row renderer for countries list
   const renderCountryRow = ({ index, style }: ListChildComponentProps) => {
     const country = filteredCountries[index];
-    const logo = null; // remove hardcoded symbol
     return (
       <div
         style={style}
@@ -748,12 +708,8 @@ export default function NewOrderPage() {
             </span>
           </div>
           <span className="font-bold text-primary">
-            {/* ₦{(country.priceNgn || 0).toLocaleString()} */}
-
-            {waitingForTvPrice ? (
+            {waitingForTvPrice && selectedProvider === "panda" ? (
               <Spinner className="h-4 w-4 animate-spin" />
-            ) : currentPriceNgn > 0 ? (
-              `₦${currentPriceNgn.toLocaleString()}`
             ) : (
               `₦${(country.priceNgn || 0).toLocaleString()}`
             )}
@@ -1200,10 +1156,19 @@ export default function NewOrderPage() {
                     type="button"
                     variant="outline"
                     className="w-full h-12 justify-between text-left"
-                    disabled={creating || !selectedService}
+                    disabled={
+                      creating ||
+                      !selectedService ||
+                      countriesLoading
+                    }
                     onClick={() => setCountryDialogOpen(true)}
                   >
-                    {selectedCountry ? (
+                    {countriesLoading ? (
+                      <span className="flex items-center gap-2 text-muted-foreground">
+                        <Spinner className="h-4 w-4" />
+                        Loading countries...
+                      </span>
+                    ) : selectedCountry ? (
                       <span className="truncate">
                         {countryNameByCode.get(
                           String(selectedCountry).toUpperCase(),
@@ -1232,14 +1197,19 @@ export default function NewOrderPage() {
                           value={countrySearch}
                           onChange={(e) => setCountrySearch(e.target.value)}
                           className="pl-9 h-11"
-                          disabled={creating || !selectedService}
+                          disabled={creating || !selectedService || countriesLoading}
                         />
                       </div>
 
-                      {filteredCountries.length === 0 ? (
+                      {countriesLoading ? (
+                        <div className="p-8 flex flex-col items-center justify-center gap-2 text-sm text-muted-foreground border rounded-md">
+                          <Spinner className="h-5 w-5" />
+                          Loading countries for this service...
+                        </div>
+                      ) : filteredCountries.length === 0 ? (
                         <div className="p-4 text-center text-sm text-muted-foreground border rounded-md">
                           {selectedService
-                            ? "No countries available"
+                            ? "No countries available for this service"
                             : "Please select a service first"}
                         </div>
                       ) : (
@@ -1354,9 +1324,13 @@ export default function NewOrderPage() {
                   <div className="flex justify-between items-center">
                     <span className="text-muted-foreground">Country:</span>
                     <span className="font-semibold">
-                      {countryNameByCode.get(
-                        String(currentService.country).toUpperCase(),
-                      ) || currentService.country}
+                      {selectedCountry
+                        ? countryNameByCode.get(
+                            String(selectedCountry).toUpperCase(),
+                          ) ||
+                          currentCountry?.name ||
+                          selectedCountry
+                        : "—"}
                     </span>
                   </div>
                   <div className="flex justify-between items-center">

@@ -1,34 +1,45 @@
 import { NextRequest } from "next/server";
 import { json, error } from "@/lib/server/utils/response";
-import { buildAndCacheServices } from "../../orders/services/route";
+import { getServicesCatalog } from "@/lib/server/services/services-catalog.service";
 
 export const runtime = "nodejs";
-// `dynamic = "force-dynamic"` prevents Vercel from pre-rendering this route as an
-// ISR page. The response is ~54MB of JSON — well above Vercel's 19MB ISR limit.
-// CDN caching is handled entirely by the Cache-Control header below.
+// Catalog is a small unique-service index (tens of KB), not the old ~54MB matrix.
+// force-dynamic still applies so we control Cache-Control headers ourselves.
 export const dynamic = "force-dynamic";
 
+/**
+ * GET /api/public/services
+ *
+ * Lightweight catalog: unique services (code + name + providers), provider
+ * list, and exchange rate. Country/price rows are loaded on demand via
+ * GET /api/public/services/countries?serviceCode=&provider=
+ */
 export async function GET(_req: NextRequest) {
   try {
-    const built = await buildAndCacheServices();
+    const catalog = await getServicesCatalog();
 
-    if (built) {
-      const { cachedAt, ...clientData } = built as any;
-      return json({ ok: true, data: clientData }, {
-        headers: {
-          "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400",
+    if (catalog) {
+      return json(
+        { ok: true, data: catalog },
+        {
+          headers: {
+            "Cache-Control":
+              "public, s-maxage=3600, stale-while-revalidate=86400",
+          },
         },
-      });
+      );
     }
 
-    // Extremely rare: all providers returned empty
     return json(
-      { ok: true, data: { services: [], providers: [], exchangeRate: null } },
+      {
+        ok: true,
+        data: { services: [], providers: [], exchangeRate: null },
+      },
       {
         headers: {
           "Cache-Control": "public, s-maxage=30, stale-while-revalidate=60",
         },
-      }
+      },
     );
   } catch (e) {
     console.error("[public/services] error", e);

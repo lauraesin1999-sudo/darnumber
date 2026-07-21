@@ -80,21 +80,20 @@ export async function register() {
     // Kick off an initial sweep shortly after boot
     setTimeout(() => void sweepOverdueOrders(), 5000);
 
-    // Warm SMS-Man sub-caches (countries + applications) on startup.
-    // Each has a 24-hour Redis TTL so this runs once per day in practice.
-    // Ensures the first GET /api/orders/services request completes in <5s
-    // instead of the cold-start ~40s it takes to download all SMS-Man data.
+    // Warm lightweight catalog + full price index on startup so the first
+    // Buy Number page load hits a warm skeleton (seconds) and countries
+    // endpoint already has the indexed price matrix.
     setTimeout(() => {
       void (async () => {
         try {
-          const { SMSManService } =
-            await import("@/lib/server/services/order.service");
-          const sms = new SMSManService();
-          console.log("[Startup] Warming SMS-Man service cache...");
-          await sms.getAvailableServices();
-          console.log("[Startup] ✓ SMS-Man service cache warmed");
+          const { getServicesCatalog, buildAndCacheServices } =
+            await import("@/lib/server/services/services-catalog.service");
+          console.log("[Startup] Warming services catalog...");
+          await getServicesCatalog(); // skeleton first
+          await buildAndCacheServices(); // full countries/price index
+          console.log("[Startup] ✓ Services catalog cache warmed");
         } catch (e) {
-          console.warn("[Startup] SMS-Man cache warm failed:", e);
+          console.warn("[Startup] Catalog warm failed:", e);
         }
       })();
     }, 3000); // 3s after boot — after initial auth setup completes
