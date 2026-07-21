@@ -339,7 +339,7 @@ async function buildAndCacheServices(): Promise<AggregatedServicesPayload | null
 // Export for the public catalog route so it can trigger population on cold cache
 export { buildAndCacheServices };
 
-export const revalidate = 3600; // 1h CDN revalidation for the public services catalog
+export const dynamic = "force-dynamic"; // Never pre-render — response is too large for ISR
 
 export async function GET() {
   console.log("\n╔════════════════════════════════════════════════╗");
