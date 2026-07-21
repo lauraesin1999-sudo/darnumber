@@ -114,35 +114,25 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify(body),
     });
 
-    if (!serviceCode || !country || !price) {
+    if (!serviceCode || !country) {
       console.log("5. ❌ Validation failed - Missing required fields:", {
         hasServiceCode: !!serviceCode,
         hasCountry: !!country,
-        hasPrice: !!price,
-        priceValue: price,
       });
-      return error("serviceCode, country, and price are required", 400);
-    }
-
-    if (typeof price !== "number" || price <= 0 || isNaN(price)) {
-      console.log("5. ❌ Validation failed - Invalid price:", {
-        price,
-        type: typeof price,
-      });
-      return error("Price must be a positive number", 400);
+      return error("serviceCode and country are required", 400);
     }
 
     console.log("5. ✅ Validation passed, creating order...");
     console.log("   serviceCode:", serviceCode);
     console.log("   country:", country);
     console.log("   provider:", provider);
-    console.log("   price (NGN):", price);
+    console.log("   clientPrice (NGN):", price);
     const service = new OrderService();
     const result = await service.createOrder({
       userId: session.user.id,
       serviceCode,
       country,
-      price,
+      clientPriceNgn: typeof price === "number" && price > 0 ? price : undefined,
       preferredProvider: provider,
     });
 

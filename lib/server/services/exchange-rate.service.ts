@@ -1,16 +1,30 @@
 import { prisma } from "@/lib/server/prisma";
 import { Prisma } from "@/app/generated/prisma";
 
-interface ExchangeRateResponse {
-  rates: Record<string, number>;
-}
-
-const OPEN_EXCHANGE_RATES_API_ID = process.env.OPEN_EXCHANGE_RATES_API_ID;
+/**
+ * Free exchange rates via MoneyConvert (https://moneyconvert.net/api/).
+ * Endpoint: https://cdn.moneyconvert.net/api/latest.json
+ * Base: USD. No API key required. Updated every ~5 minutes.
+ */
+const MONEYCONVERT_API_URL = "https://cdn.moneyconvert.net/api/latest.json";
 const CACHE_DURATION_HOURS = 8; // Refresh every 8 hours (3 times daily)
 const FALLBACK_USD_TO_NGN = 1600;
 const FALLBACK_USD_TO_RUB = 100;
 
+interface MoneyConvertResponse {
+  base?: string;
+  rates?: Record<string, number>;
+  ts?: string;
+  source?: string;
+}
+
 export class ExchangeRateService {
+  /** In-process snapshot of the last successful full rates payload (avoids re-fetch per pair). */
+  private static ratesSnapshot: {
+    rates: Record<string, number>;
+    fetchedAt: number;
+  } | null = null;
+
   /**
    * Get exchange rate from cache or fetch from API if stale
    */
@@ -18,6 +32,8 @@ export class ExchangeRateService {
     fromCurrency: string,
     toCurrency: string,
   ): Promise<number> {
+    if (fromCurrency === toCurrency) return 1;
+
     try {
       // Try to get from database cache
       const cached = await prisma.exchangeRate.findUnique({
@@ -51,7 +67,7 @@ export class ExchangeRateService {
       console.log(
         `[ExchangeRate] Cache ${
           cached ? "stale" : "miss"
-        } for ${fromCurrency}/${toCurrency}, fetching from API...`,
+        } for ${fromCurrency}/${toCurrency}, fetching from MoneyConvert...`,
       );
       const rate = await this.fetchRateFromAPI(fromCurrency, toCurrency);
 
@@ -113,35 +129,84 @@ export class ExchangeRateService {
   }
 
   /**
-   * Fetch rate from Open Exchange Rates API
+   * Fetch rates from MoneyConvert free API (base USD).
+   * Supports any pair by converting through USD.
    */
   private static async fetchRateFromAPI(
     fromCurrency: string,
     toCurrency: string,
   ): Promise<number> {
-    const url = `https://openexchangerates.org/api/latest.json?app_id=${OPEN_EXCHANGE_RATES_API_ID}&base=${fromCurrency}`;
+    const rates = await this.fetchUsdBaseRates();
 
-    const response = await fetch(url, {
-      next: { revalidate: 0 }, // Don't cache at fetch level
+    if (fromCurrency === "USD") {
+      const rate = rates[toCurrency];
+      if (rate == null) {
+        throw new Error(`Currency ${toCurrency} not found in MoneyConvert response`);
+      }
+      return rate;
+    }
+
+    if (toCurrency === "USD") {
+      const fromPerUsd = rates[fromCurrency];
+      if (fromPerUsd == null || fromPerUsd === 0) {
+        throw new Error(`Currency ${fromCurrency} not found in MoneyConvert response`);
+      }
+      return 1 / fromPerUsd;
+    }
+
+    // Cross rate via USD: (to/USD) / (from/USD)
+    const fromPerUsd = rates[fromCurrency];
+    const toPerUsd = rates[toCurrency];
+    if (fromPerUsd == null || toPerUsd == null || fromPerUsd === 0) {
+      throw new Error(
+        `Cannot compute ${fromCurrency}/${toCurrency}: missing rates in MoneyConvert response`,
+      );
+    }
+    return toPerUsd / fromPerUsd;
+  }
+
+  /**
+   * Fetch (and briefly cache in-process) the full USD-base rates map.
+   */
+  private static async fetchUsdBaseRates(): Promise<Record<string, number>> {
+    const SNAPSHOT_TTL_MS = 5 * 60 * 1000; // 5 min in-process reuse
+    if (
+      this.ratesSnapshot &&
+      Date.now() - this.ratesSnapshot.fetchedAt < SNAPSHOT_TTL_MS
+    ) {
+      return this.ratesSnapshot.rates;
+    }
+
+    const response = await fetch(MONEYCONVERT_API_URL, {
+      next: { revalidate: 0 },
+      headers: { Accept: "application/json" },
     });
 
     if (!response.ok) {
       throw new Error(
-        `Open Exchange Rates API error: ${response.status} ${response.statusText}`,
+        `MoneyConvert API error: ${response.status} ${response.statusText}`,
       );
     }
 
-    const data = (await response.json()) as ExchangeRateResponse;
+    const data = (await response.json()) as MoneyConvertResponse;
 
-    if (!data.rates || !(toCurrency in data.rates)) {
-      throw new Error(`Currency ${toCurrency} not found in API response`);
+    if (!data.rates || typeof data.rates !== "object") {
+      throw new Error("MoneyConvert API returned invalid rates payload");
     }
 
-    return data.rates[toCurrency];
+    // Ensure USD is present
+    const rates = { ...data.rates, USD: data.rates.USD ?? 1 };
+
+    this.ratesSnapshot = { rates, fetchedAt: Date.now() };
+    console.log(
+      `[ExchangeRate] ✓ Fetched MoneyConvert rates (ts: ${data.ts || "n/a"}, currencies: ${Object.keys(rates).length})`,
+    );
+    return rates;
   }
 
   /**
-   * Get hardcoded fallback rates (last resort)
+   * Get hardcoded fallback rates (last resort).
+   * USD/NGN defaults to 1600 as a stable business fallback.
    */
   private static getFallbackRate(
     fromCurrency: string,
@@ -178,24 +243,71 @@ export class ExchangeRateService {
   }
 
   /**
-   * Manually refresh all commonly used rates (can be called by cron job)
+   * Manually refresh all commonly used rates (can be called by cron job).
+   * Forces a fresh API pull by clearing the in-process snapshot first.
    */
   static async refreshCommonRates(): Promise<void> {
-    console.log("[ExchangeRate] Refreshing common exchange rates...");
+    console.log("[ExchangeRate] Refreshing common exchange rates via MoneyConvert...");
+    this.ratesSnapshot = null;
 
     const commonPairs = [
       { from: "USD", to: "NGN" },
       { from: "USD", to: "RUB" },
     ];
 
-    for (const pair of commonPairs) {
-      try {
-        await this.getRate(pair.from, pair.to);
-      } catch (error) {
-        console.error(
-          `[ExchangeRate] Failed to refresh ${pair.from}/${pair.to}:`,
-          error,
-        );
+    // Force-refresh by writing fresh API values even if DB cache is still "valid"
+    try {
+      const rates = await this.fetchUsdBaseRates();
+      const now = new Date();
+
+      for (const pair of commonPairs) {
+        try {
+          let rate: number;
+          if (pair.from === "USD") {
+            rate = rates[pair.to];
+          } else {
+            rate = await this.fetchRateFromAPI(pair.from, pair.to);
+          }
+          if (rate == null) {
+            throw new Error(`Missing rate for ${pair.from}/${pair.to}`);
+          }
+
+          await prisma.exchangeRate.upsert({
+            where: {
+              fromCurrency_toCurrency: {
+                fromCurrency: pair.from,
+                toCurrency: pair.to,
+              },
+            },
+            update: {
+              rate: new Prisma.Decimal(rate),
+              updatedAt: now,
+            },
+            create: {
+              fromCurrency: pair.from,
+              toCurrency: pair.to,
+              rate: new Prisma.Decimal(rate),
+            },
+          });
+          console.log(
+            `[ExchangeRate] ✓ Refreshed 1 ${pair.from} = ${rate} ${pair.to}`,
+          );
+        } catch (error) {
+          console.error(
+            `[ExchangeRate] Failed to refresh ${pair.from}/${pair.to}:`,
+            error,
+          );
+        }
+      }
+    } catch (error) {
+      console.error("[ExchangeRate] Failed to fetch MoneyConvert rates:", error);
+      // Fall back to getRate which will use stale/hardcoded
+      for (const pair of commonPairs) {
+        try {
+          await this.getRate(pair.from, pair.to);
+        } catch {
+          /* ignore */
+        }
       }
     }
 

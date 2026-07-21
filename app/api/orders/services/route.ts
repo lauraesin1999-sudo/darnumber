@@ -226,16 +226,25 @@ async function buildAndCacheServices(): Promise<AggregatedServicesPayload | null
       });
 
       console.log("[Build] Applying admin pricing rules...");
-      const pricingResults =
-        await PricingService.calculatePrices(servicesToPrice);
+      // Pass USD→NGN so FIXED markups denominated in NGN convert correctly.
+      // Formula: finalUsd = providerBaseUsd + markupUsd
+      const pricingResults = await PricingService.calculatePrices(
+        servicesToPrice,
+        usdToNgnRate,
+      );
 
       if (pricingResults.length > 0) {
         const first = pricingResults[0];
+        const ruleNote = first.ruleApplied
+          ? `(Rule: ${first.ruleApplied.profitType} ${first.ruleApplied.profitValue}${
+              first.ruleApplied.profitType === "FIXED"
+                ? ` ${first.ruleApplied.profitCurrency}`
+                : "%"
+            })`
+          : "(Default 20%)";
         console.log(
           `[Build] Sample pricing: $${first.basePrice.toFixed(4)} base + $${first.profit.toFixed(4)} profit = $${first.finalPrice.toFixed(4)}`,
-          first.ruleApplied
-            ? `(Rule: ${first.ruleApplied.profitType} ${first.ruleApplied.profitValue})`
-            : "(Default 20%)",
+          ruleNote,
         );
       }
 

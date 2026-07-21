@@ -54,6 +54,13 @@ export default function AdminSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [pricingRules, setPricingRules] = useState<any[]>([]);
   const [actionLoading, setActionLoading] = useState(false);
+  const [exchangeRates, setExchangeRates] = useState<{
+    usdToNgn?: number;
+    usdToRub?: number;
+    source?: string;
+    timestamp?: string;
+  } | null>(null);
+  const [ratesRefreshing, setRatesRefreshing] = useState(false);
 
   // Create/Edit modal
   const [ruleModalOpen, setRuleModalOpen] = useState(false);
@@ -63,6 +70,7 @@ export default function AdminSettingsPage() {
     country: "",
     profitType: "PERCENTAGE",
     profitValue: "",
+    profitCurrency: "USD" as "USD" | "NGN",
     priority: 0,
     isActive: true,
   });
@@ -73,6 +81,7 @@ export default function AdminSettingsPage() {
 
   useEffect(() => {
     fetchPricingRules();
+    fetchExchangeRates();
   }, []);
 
   const fetchPricingRules = async () => {
@@ -93,6 +102,37 @@ export default function AdminSettingsPage() {
     }
   };
 
+  const fetchExchangeRates = async () => {
+    try {
+      const res = await fetch("/api/exchange-rates");
+      if (!res.ok) return;
+      const json = await res.json();
+      setExchangeRates(json?.data || null);
+    } catch (err) {
+      console.error("Failed to fetch exchange rates:", err);
+    }
+  };
+
+  const handleRefreshRates = async () => {
+    setRatesRefreshing(true);
+    try {
+      const res = await fetch("/api/exchange-rates/refresh");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error?.message || "Refresh failed");
+      }
+      toast.success("Rates refreshed", "Live rates loaded from MoneyConvert.");
+      await fetchExchangeRates();
+    } catch (error: any) {
+      toast.error(
+        "Refresh failed",
+        error?.message || "Could not refresh exchange rates.",
+      );
+    } finally {
+      setRatesRefreshing(false);
+    }
+  };
+
   const openCreateModal = () => {
     setEditingRule(null);
     setRuleForm({
@@ -100,6 +140,7 @@ export default function AdminSettingsPage() {
       country: "",
       profitType: "PERCENTAGE",
       profitValue: "",
+      profitCurrency: "USD",
       priority: 0,
       isActive: true,
     });
@@ -113,6 +154,7 @@ export default function AdminSettingsPage() {
       country: rule.country || "",
       profitType: rule.profitType,
       profitValue: rule.profitValue?.toString() || "",
+      profitCurrency: rule.profitCurrency === "NGN" ? "NGN" : "USD",
       priority: rule.priority,
       isActive: rule.isActive,
     });
@@ -132,6 +174,9 @@ export default function AdminSettingsPage() {
         country: ruleForm.country || null,
         profitType: ruleForm.profitType,
         profitValue: parseFloat(ruleForm.profitValue),
+        // Currency only applies to FIXED markups; always send for clarity
+        profitCurrency:
+          ruleForm.profitType === "FIXED" ? ruleForm.profitCurrency : "USD",
         priority: ruleForm.priority,
         isActive: ruleForm.isActive,
       };
@@ -298,7 +343,9 @@ export default function AdminSettingsPage() {
                       <td className="px-4 py-3 font-medium">
                         {rule.profitType === "PERCENTAGE"
                           ? `${rule.profitValue}%`
-                          : `₦${Number(rule.profitValue).toFixed(2)}`}
+                          : rule.profitCurrency === "NGN"
+                            ? `₦${Number(rule.profitValue).toFixed(2)}`
+                            : `$${Number(rule.profitValue).toFixed(2)}`}
                       </td>
                       <td className="px-4 py-3">
                         <Badge variant="secondary">{rule.priority}</Badge>
@@ -355,12 +402,20 @@ export default function AdminSettingsPage() {
             </h3>
             <ul className="text-sm text-blue-700 space-y-1">
               <li>
+                • Customer price = <strong>provider cost + markup</strong>
+              </li>
+              <li>
                 • Rules with higher priority take precedence over lower priority
                 rules
               </li>
               <li>• Specific service/country rules override general rules</li>
-              <li>• Percentage adds a markup on top of the provider cost</li>
-              <li>• Fixed adds a flat amount to the provider cost</li>
+              <li>
+                • Percentage: markup is a % of the provider cost (e.g. 20%)
+              </li>
+              <li>
+                • Fixed: flat markup in <strong>USD</strong> or{" "}
+                <strong>NGN</strong> (choose currency when creating the rule)
+              </li>
               <li>• Leave service or country empty to apply to all</li>
             </ul>
           </Card>
@@ -368,6 +423,62 @@ export default function AdminSettingsPage() {
 
         {/* General Settings Tab */}
         <TabsContent value="general" className="space-y-6">
+          <Card className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-xl font-semibold">Exchange Rates</h2>
+                <p className="text-sm text-muted-foreground">
+                  Live rates from MoneyConvert (free). Used to convert provider
+                  costs (RUB/USD) into customer NGN prices. Fallback USD/NGN =
+                  1600 if the API is unavailable.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                onClick={handleRefreshRates}
+                disabled={ratesRefreshing}
+              >
+                <RefreshCw
+                  className={`w-4 h-4 mr-2 ${ratesRefreshing ? "animate-spin" : ""}`}
+                />
+                Refresh Rates
+              </Button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="rounded-lg border p-4">
+                <p className="text-sm text-muted-foreground">1 USD → NGN</p>
+                <p className="text-2xl font-semibold">
+                  {exchangeRates?.usdToNgn != null
+                    ? `₦${Number(exchangeRates.usdToNgn).toLocaleString(undefined, {
+                        maximumFractionDigits: 2,
+                      })}`
+                    : "—"}
+                </p>
+              </div>
+              <div className="rounded-lg border p-4">
+                <p className="text-sm text-muted-foreground">1 USD → RUB</p>
+                <p className="text-2xl font-semibold">
+                  {exchangeRates?.usdToRub != null
+                    ? `₽${Number(exchangeRates.usdToRub).toLocaleString(undefined, {
+                        maximumFractionDigits: 4,
+                      })}`
+                    : "—"}
+                </p>
+              </div>
+              <div className="rounded-lg border p-4">
+                <p className="text-sm text-muted-foreground">Source / Updated</p>
+                <p className="text-sm font-medium">
+                  {exchangeRates?.source || "moneyconvert.net"}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {exchangeRates?.timestamp
+                    ? new Date(exchangeRates.timestamp).toLocaleString()
+                    : "Not loaded"}
+                </p>
+              </div>
+            </div>
+          </Card>
+
           <Card className="p-6">
             <h2 className="text-xl font-semibold mb-4">General Settings</h2>
             <div className="space-y-6">
@@ -472,7 +583,11 @@ export default function AdminSettingsPage() {
               <div>
                 <Label>
                   Profit Value{" "}
-                  {ruleForm.profitType === "PERCENTAGE" ? "(%)" : "(₦)"}
+                  {ruleForm.profitType === "PERCENTAGE"
+                    ? "(%)"
+                    : ruleForm.profitCurrency === "NGN"
+                      ? "(₦)"
+                      : "($)"}
                 </Label>
                 <Input
                   type="number"
@@ -484,11 +599,43 @@ export default function AdminSettingsPage() {
                   placeholder={
                     ruleForm.profitType === "PERCENTAGE"
                       ? "e.g., 20"
-                      : "e.g., 50"
+                      : ruleForm.profitCurrency === "NGN"
+                        ? "e.g., 500"
+                        : "e.g., 1.00"
                   }
                 />
               </div>
             </div>
+            {ruleForm.profitType === "FIXED" && (
+              <div>
+                <Label>Markup Currency</Label>
+                <Select
+                  value={ruleForm.profitCurrency}
+                  onValueChange={(val) =>
+                    setRuleForm({
+                      ...ruleForm,
+                      profitCurrency: val as "USD" | "NGN",
+                    })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="USD">
+                      US Dollar (USD) — e.g. $1.00 flat
+                    </SelectItem>
+                    <SelectItem value="NGN">
+                      Nigerian Naira (NGN) — e.g. ₦500 flat
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Final price = provider cost + this fixed amount. Provider
+                  costs are converted from RUB/USD using live rates.
+                </p>
+              </div>
+            )}
             <div>
               <Label>Priority</Label>
               <Input

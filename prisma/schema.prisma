@@ -238,8 +238,11 @@ model PricingRule {
   country     String? // null = applies to all
 
   // Pricing strategy
-  profitType  ProfitType @map("profit_type")
-  profitValue Decimal    @map("profit_value") @db.Decimal(10, 4) // Percentage or fixed amount
+  // finalPrice = providerCost + markup (PERCENTAGE of cost, or FIXED amount)
+  profitType     ProfitType     @map("profit_type")
+  profitValue    Decimal        @map("profit_value") @db.Decimal(10, 4) // Percentage or fixed amount
+  // Currency for FIXED markups only (PERCENTAGE is unitless). USD or NGN.
+  profitCurrency ProfitCurrency @default(USD) @map("profit_currency")
 
   // Priority (higher = more specific, takes precedence)
   priority Int @default(0)
@@ -255,8 +258,13 @@ model PricingRule {
 }
 
 enum ProfitType {
-  PERCENTAGE // e.g., 20% markup
-  FIXED // e.g., $0.50 markup
+  PERCENTAGE // e.g., 20% markup on provider cost
+  FIXED // e.g., $0.50 or ₦500 flat markup on provider cost
+}
+
+enum ProfitCurrency {
+  USD // Fixed markup denominated in US dollars
+  NGN // Fixed markup denominated in Nigerian naira
 }
 
 // ============================================

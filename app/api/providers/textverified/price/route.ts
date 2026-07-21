@@ -76,10 +76,12 @@ export async function GET(req: NextRequest) {
     const usdToNgn = await ExchangeRateService.getUsdToNgnRate();
 
     // 3. Apply admin pricing rules (TextVerified is always US)
+    // final = providerBase + markup (FIXED may be USD or NGN)
     const pricingResult = await PricingService.calculatePrice(
       baseUsdPrice,
       serviceName,
       "US",
+      usdToNgn,
     );
 
     const finalUsdPrice = pricingResult.finalPrice;
@@ -88,19 +90,23 @@ export async function GET(req: NextRequest) {
     // 4. Convert to NGN
     const finalNgnPrice = Math.round(finalUsdPrice * usdToNgn);
 
+    const ruleNote = pricingResult.ruleApplied
+      ? `(Rule: ${pricingResult.ruleApplied.profitType} ${
+          pricingResult.ruleApplied.profitValue
+        }${
+          pricingResult.ruleApplied.profitType === "PERCENTAGE"
+            ? "%"
+            : ` ${pricingResult.ruleApplied.profitCurrency}`
+        })`
+      : "(Default 20% markup)";
+
     console.log(
       `[TextVerified][Price] ${serviceName}: Base $${baseUsdPrice.toFixed(
         2,
       )} + profit $${profitUsd.toFixed(2)} = $${finalUsdPrice.toFixed(
         2,
       )} → ₦${finalNgnPrice.toLocaleString()}`,
-      pricingResult.ruleApplied
-        ? `(Rule: ${pricingResult.ruleApplied.profitType} ${
-            pricingResult.ruleApplied.profitValue
-          }${
-            pricingResult.ruleApplied.profitType === "PERCENTAGE" ? "%" : " USD"
-          })`
-        : "(Default 20% markup)",
+      ruleNote,
     );
 
     return json({

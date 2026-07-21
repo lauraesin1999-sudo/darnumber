@@ -2,6 +2,8 @@ import { prisma } from "@/lib/server/prisma";
 import { Prisma } from "@/app/generated/prisma";
 import { RedisService } from "@/lib/server/services/redis.service";
 import { TextVerifiedService } from "./textverified.service";
+import { PricingService } from "./pricing.service";
+import { ExchangeRateService } from "./exchange-rate.service";
 
 const redis = new RedisService();
 
@@ -65,7 +67,8 @@ interface CreateOrderInput {
   userId: string;
   serviceCode: string;
   country: string;
-  price: number; // Price is now required, fetched on the client for TextVerified
+  /** Client-supplied price in NGN — used only as a stale-price guard, never as the authoritative charge. */
+  clientPriceNgn?: number;
   preferredProvider?: string;
 }
 
@@ -73,7 +76,7 @@ export class OrderService {
   async createOrder(input: CreateOrderInput) {
     console.log("[OrderService.createOrder] ========== START ==========");
     console.log("[OrderService.createOrder] Input:", JSON.stringify(input));
-    const { userId, serviceCode, country, price, preferredProvider } = input;
+    const { userId, serviceCode, country, clientPriceNgn, preferredProvider } = input;
 
     // 1. Validate User
     console.log("[OrderService.createOrder] Step 1: Validating user...");
@@ -120,18 +123,37 @@ export class OrderService {
       selectedProvider,
     );
 
-    // 3. Validate Price and Balance
-    console.log(
-      "[OrderService.createOrder] Step 3: Validating price and balance...",
+    // 3. Calculate authoritative server-side price
+    console.log("[OrderService.createOrder] Step 3: Calculating server-side price...");
+    const serverPriceNgn = await this.calculateAuthoritativePrice(
+      serviceCode,
+      country,
+      selectedProvider.name,
     );
-    // For TextVerified, the price is passed in. For others, we might calculate it here.
-    // This logic assumes the passed 'price' is the final, correct price.
-    const finalPrice = new Prisma.Decimal(price);
+    console.log("[OrderService.createOrder] Server price (NGN):", serverPriceNgn);
+
+    // Guard: if the client quoted a price that is more than 10% below the server
+    // price, the frontend was working off a stale cache. Reject so the user sees
+    // fresh pricing before being charged.
+    if (clientPriceNgn !== undefined && clientPriceNgn < serverPriceNgn * 0.90) {
+      console.warn("[OrderService.createOrder] Client price too low vs server price:", {
+        clientPriceNgn,
+        serverPriceNgn,
+        diff: `${(((serverPriceNgn - clientPriceNgn) / serverPriceNgn) * 100).toFixed(1)}%`,
+      });
+      throw new Error(
+        `Price has changed. Expected ₦${serverPriceNgn.toLocaleString()}, got ₦${clientPriceNgn.toLocaleString()}. Please refresh and try again.`,
+      );
+    }
+
+    // 4. Validate Balance against server price
     console.log(
-      "[OrderService.createOrder] Price:",
-      finalPrice.toString(),
-      "Balance:",
-      user.balance.toString(),
+      "[OrderService.createOrder] Step 4: Validating balance...",
+    );
+    const finalPrice = new Prisma.Decimal(serverPriceNgn);
+    console.log(
+      "[OrderService.createOrder] Price (server):", finalPrice.toString(),
+      "Balance:", user.balance.toString(),
     );
     if (user.balance.lt(finalPrice)) {
       console.error("[OrderService.createOrder] Insufficient balance:", {
@@ -143,9 +165,9 @@ export class OrderService {
     }
     console.log("[OrderService.createOrder] Balance check passed.");
 
-    // 4. Create Order and Transaction in a single DB operation
+    // 5. Create Order and Transaction in a single DB operation
     console.log(
-      "[OrderService.createOrder] Step 4: Creating order record and deducting balance...",
+      "[OrderService.createOrder] Step 5: Creating order record and deducting balance...",
     );
     const order = await prisma.$transaction(
       async (tx) => {
@@ -199,9 +221,9 @@ export class OrderService {
       orderNumber: order.orderNumber,
     });
 
-    // 5. Request number with provider failover (outside the main DB transaction)
+    // 6. Request number with provider failover (outside the main DB transaction)
     console.log(
-      "[OrderService.createOrder] Step 5: Requesting number from providers...",
+      "[OrderService.createOrder] Step 6: Requesting number from providers...",
     );
     const providerErrors: Array<{ provider: string; message: string }> = [];
 
@@ -312,6 +334,80 @@ export class OrderService {
       return new TextVerifiedService();
     }
     throw new Error(`Unknown provider: ${providerName}`);
+  }
+
+  /**
+   * Calculates the authoritative server-side price for a service/country/provider
+   * combination in NGN, with admin pricing rules applied.
+   *
+   * For SMS-Man: fetches the live RUB price, converts to USD, applies markup, converts to NGN.
+   * For TextVerified: uses the default base price + markup (exact price requires a separate
+   *   TextVerified API call which is done lazily on the client; the markup is still applied).
+   *
+   * This is the ONLY price the backend trusts for charging. The client-supplied price
+   * is used only as a stale-cache guard.
+   */
+  async calculateAuthoritativePrice(
+    serviceCode: string,
+    country: string,
+    providerName: string,
+  ): Promise<number> {
+    const normalizedProvider = providerName.toLowerCase();
+
+    // Fetch exchange rates in parallel
+    const [rubToUsdRate, usdToNgnRate] = await Promise.all([
+      ExchangeRateService.getUsdToRubRate(),
+      ExchangeRateService.getUsdToNgnRate(),
+    ]);
+
+    let baseUsd: number;
+
+    if (normalizedProvider.includes("sms-man") || normalizedProvider.includes("lion")) {
+      // Fetch live price for this specific service+country — much faster than full catalogue
+      const smsMan = new SMSManService();
+      const priceRub = await smsMan.getPriceForService(serviceCode, country);
+      baseUsd = Number((priceRub / rubToUsdRate).toFixed(6));
+      console.log(
+        `[OrderService.calculateAuthoritativePrice] SMS-Man: ${priceRub} RUB ÷ ${rubToUsdRate} = $${baseUsd} USD`,
+      );
+    } else {
+      // TextVerified — use the fixed baseline; exact per-number price is fetched on checkout
+      const TV_DEFAULT_BASE_USD = 2.5;
+      baseUsd = TV_DEFAULT_BASE_USD;
+      console.log(
+        `[OrderService.calculateAuthoritativePrice] TextVerified: using baseline $${baseUsd} USD`,
+      );
+    }
+
+    // Apply admin pricing rules: final = providerBase + markup
+    // FIXED markups may be USD or NGN (converted inside PricingService)
+    const pricing = await PricingService.calculatePrice(
+      baseUsd,
+      serviceCode,
+      country,
+      usdToNgnRate,
+    );
+    const finalUsd = pricing.finalPrice;
+
+    // Convert to NGN and round up to nearest whole unit
+    const finalNgn = Math.ceil(finalUsd * usdToNgnRate);
+
+    const ruleNote = pricing.ruleApplied
+      ? ` (Rule: ${pricing.ruleApplied.profitType} ${pricing.ruleApplied.profitValue}${
+          pricing.ruleApplied.profitType === "FIXED"
+            ? ` ${pricing.ruleApplied.profitCurrency}`
+            : "%"
+        })`
+      : " (Default 20%)";
+
+    console.log(
+      `[OrderService.calculateAuthoritativePrice] $${baseUsd.toFixed(4)} base` +
+        ` + $${pricing.profit.toFixed(4)} markup = $${finalUsd.toFixed(4)} USD` +
+        ` → ₦${finalNgn} NGN` +
+        ruleNote,
+    );
+
+    return finalNgn;
   }
 
   async getAvailableProviders(
@@ -1158,6 +1254,55 @@ export class SMSManService {
         }`,
       );
     }
+  }
+
+  /**
+   * Fetches the live RUB price for a single service+country combination.
+   * Much faster than getAvailableServices() — resolves IDs then does one prices call.
+   */
+  async getPriceForService(serviceCode: string, countryCode: string): Promise<number> {
+    if (!this.apiKey) throw new Error("SMS-Man API key not configured");
+
+    // Resolve IDs (both are cached for 24h)
+    const [applications, countries] = await Promise.all([
+      this.getApplications(),
+      this.getCountries(),
+    ]);
+
+    const app = applications.find(
+      (a) => a.code?.toLowerCase() === serviceCode.toLowerCase(),
+    );
+    if (!app) {
+      throw new Error(`SMS-Man: service code "${serviceCode}" not found`);
+    }
+
+    const countryId = countries.get(countryCode.toUpperCase());
+    if (!countryId) {
+      throw new Error(`SMS-Man: country "${countryCode}" not supported`);
+    }
+
+    const res = await fetch(
+      `${this.apiUrl}/get-prices?token=${this.apiKey}`,
+    );
+    if (!res.ok) throw new Error(`SMS-Man prices API returned ${res.status}`);
+    const data = await res.json();
+
+    const countryData = data[countryId];
+    if (!countryData) {
+      throw new Error(`SMS-Man: no prices for country "${countryCode}" (id: ${countryId})`);
+    }
+
+    // Find the entry for this application
+    const entry = Object.values(countryData as Record<string, any>).find(
+      (e: any) => String(e.application_id) === String(app.id),
+    );
+    if (!entry || !entry.cost) {
+      throw new Error(
+        `SMS-Man: service "${serviceCode}" not available in "${countryCode}"`,
+      );
+    }
+
+    return parseFloat(entry.cost);
   }
 
   async cancelNumber(externalId: string): Promise<void> {

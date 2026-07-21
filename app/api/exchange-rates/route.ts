@@ -29,6 +29,7 @@ export async function GET(_req: NextRequest) {
       usdToNgn,
       usdToRub,
       rubToUsd: 1 / usdToRub,
+      source: "moneyconvert.net",
       timestamp: new Date().toISOString(),
     };
 

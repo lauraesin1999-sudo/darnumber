@@ -457,6 +457,12 @@ export class AdminService {
     if (data.profitType) payload.profitType = data.profitType as any;
     if (typeof data.profitValue !== "undefined")
       payload.profitValue = data.profitValue;
+    // Currency for FIXED markups (PERCENTAGE ignores this; default USD)
+    if (data.profitCurrency === "NGN" || data.profitCurrency === "USD") {
+      payload.profitCurrency = data.profitCurrency;
+    } else if (data.profitType === "FIXED") {
+      payload.profitCurrency = "USD";
+    }
     if (typeof data.priority === "number") payload.priority = data.priority;
     if (typeof data.isActive === "boolean") payload.isActive = data.isActive;
     const rule = await prisma.pricingRule.create({ data: payload });
@@ -478,6 +484,9 @@ export class AdminService {
     if (data.profitType) payload.profitType = data.profitType as any;
     if (typeof data.profitValue !== "undefined")
       payload.profitValue = data.profitValue;
+    if (data.profitCurrency === "NGN" || data.profitCurrency === "USD") {
+      payload.profitCurrency = data.profitCurrency;
+    }
     if (typeof data.priority === "number") payload.priority = data.priority;
     if (typeof data.isActive === "boolean") payload.isActive = data.isActive;
     const rule = await prisma.pricingRule.update({
