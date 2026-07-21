@@ -14,12 +14,16 @@ export async function GET(req: NextRequest) {
     const session = await requireAuth();
     const userId = session.user.id;
 
-    // Try cache first
-    const cached = await redis.getJSON<{ balance: number; currency: string }>(
-      `user:balance:${userId}`
-    );
-    if (cached) {
-      return json({ ok: true, data: cached });
+    // Try cache first — best-effort, fall through to DB on Redis failure
+    try {
+      const cached = await redis.getJSON<{ balance: number; currency: string }>(
+        `user:balance:${userId}`
+      );
+      if (cached) {
+        return json({ ok: true, data: cached });
+      }
+    } catch {
+      // Redis unavailable — continue to DB
     }
 
     const user = await prisma.user.findUnique({
@@ -34,8 +38,8 @@ export async function GET(req: NextRequest) {
       currency: user.currency || "NGN",
     };
 
-    // Cache for short time
-    await redis.setJSON(`user:balance:${userId}`, data, BALANCE_CACHE_TTL);
+    // Cache write is fire-and-forget
+    redis.setJSON(`user:balance:${userId}`, data, BALANCE_CACHE_TTL).catch(() => {});
 
     console.log("[Route][User][Balance] Fetched + cached", { userId });
 

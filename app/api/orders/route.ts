@@ -26,10 +26,15 @@ export async function GET(req: NextRequest) {
 
     const filterKey = `${status}:${search}:${startDate}:${endDate}`;
 
-    // Short-lived per-user per-filter cache (dramatically cuts repeated FOT + CPU on list reloads)
-    const cached = await redis.getUserOrders(userId, page, limit, filterKey);
-    if (cached) {
-      return json({ ok: true, data: cached });
+    // Short-lived per-user per-filter cache (dramatically cuts repeated DB hits on list reloads)
+    // Cache read is best-effort — fall through to DB on Redis failure
+    try {
+      const cached = await redis.getUserOrders(userId, page, limit, filterKey);
+      if (cached) {
+        return json({ ok: true, data: cached });
+      }
+    } catch {
+      // Redis unavailable — continue to DB
     }
 
     const skip = (page - 1) * limit;
@@ -75,7 +80,8 @@ export async function GET(req: NextRequest) {
       pagination: { page, limit, total, pages: Math.ceil(total / limit) },
     };
 
-    await redis.setUserOrders(userId, page, limit, filterKey, result, ORDERS_CACHE_TTL);
+    // Cache write is fire-and-forget
+    redis.setUserOrders(userId, page, limit, filterKey, result, ORDERS_CACHE_TTL).catch(() => {});
 
     return json({ ok: true, data: result });
   } catch (e) {

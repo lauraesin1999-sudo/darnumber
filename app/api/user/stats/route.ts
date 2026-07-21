@@ -18,11 +18,15 @@ export async function GET(req: NextRequest) {
     const sp = new URL(req.url).searchParams;
     const days = Number(sp.get("days") || 30);
 
-    // Check Redis cache first (key includes days for different filters)
+    // Check cache first — best-effort, fall through to DB on Redis failure
     const cacheKey = `user:stats:${userId}:${days}`;
-    const cached = await redis.getJSON<any>(cacheKey);
-    if (cached) {
-      return json({ ok: true, data: cached });
+    try {
+      const cached = await redis.getJSON<any>(cacheKey);
+      if (cached) {
+        return json({ ok: true, data: cached });
+      }
+    } catch {
+      // Redis unavailable — continue to DB
     }
 
     console.log("[Route][User][Stats] Starting fetch for userId:", userId);
@@ -216,7 +220,8 @@ export async function GET(req: NextRequest) {
     });
 
     // Cache result
-    await redis.setJSON(cacheKey, stats, STATS_CACHE_TTL);
+    // Cache write is fire-and-forget
+    redis.setJSON(cacheKey, stats, STATS_CACHE_TTL).catch(() => {});
 
     return json({
       ok: true,

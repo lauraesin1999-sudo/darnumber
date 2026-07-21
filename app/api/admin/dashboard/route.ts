@@ -18,16 +18,21 @@ export async function GET(req: NextRequest) {
     const sp = new URL(req.url).searchParams;
     const days = Number(sp.get("days") || 30);
 
-    // Serve from cache for admin analytics (big aggregates)
-    const cached = await redis.getAdminDashboard(days);
-    if (cached) {
-      return json({ ok: true, data: cached });
+    // Serve from cache for admin analytics (big aggregates) — best-effort
+    try {
+      const cached = await redis.getAdminDashboard(days);
+      if (cached) {
+        return json({ ok: true, data: cached });
+      }
+    } catch {
+      // Redis unavailable — continue to DB
     }
 
     const svc = new AdminService();
     const data = await svc.getDashboardAnalytics(days);
 
-    await redis.setAdminDashboard(days, data, ADMIN_CACHE_TTL);
+    // Cache write is fire-and-forget
+    redis.setAdminDashboard(days, data, ADMIN_CACHE_TTL).catch(() => {});
 
     return json({ ok: true, data });
   } catch (e) {

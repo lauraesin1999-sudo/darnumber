@@ -127,13 +127,17 @@ export class TextVerifiedService {
   ): Promise<TextVerifiedServiceData[]> {
     const cacheKey = `textverified:services:${numberType}:${reservationType}`;
 
-    // Check Redis cache first (cache for 1 hour)
-    const cached = await redis.get(cacheKey);
-    if (cached) {
-      console.log(
-        `[TextVerified] Using cached services for ${numberType}/${reservationType}`,
-      );
-      return JSON.parse(cached); // TypeScript: cached is string due to truthy check
+    // Cache read is best-effort — fall through to live API on Redis failure
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        console.log(
+          `[TextVerified] Using cached services for ${numberType}/${reservationType}`,
+        );
+        return JSON.parse(cached);
+      }
+    } catch {
+      // Redis unavailable — continue to live API
     }
 
     console.log(
@@ -220,8 +224,8 @@ export class TextVerifiedService {
           | "smsAndVoiceCombo",
       }));
 
-      // Cache for 1 hour
-      await redis.set(cacheKey, JSON.stringify(normalizedServices), 60 * 60);
+      // Cache write is fire-and-forget
+      redis.set(cacheKey, JSON.stringify(normalizedServices), 60 * 60).catch(() => {});
 
       return normalizedServices;
     } catch (error) {
@@ -245,24 +249,34 @@ export class TextVerifiedService {
     const cacheKey = `textverified:pricing:${request.serviceName}:${request.numberType}:${request.capability}:${request.areaCode}:${request.carrier}`;
     const invalidCacheKey = `textverified:pricing:invalid:${request.serviceName}`;
 
-    // Check negative cache — if this service name was previously rejected, skip the API call
-    const isInvalid = await redis.get(invalidCacheKey);
-    if (isInvalid) {
-      console.log(
-        `[TextVerified] Skipping invalid service (cached): ${request.serviceName}`,
-      );
-      throw new Error(
-        `Incompatible service and options: Invalid 'service name' (cached)`,
-      );
+    // Negative cache — best-effort: if Redis is down we simply re-hit the API
+    try {
+      const isInvalid = await redis.get(invalidCacheKey);
+      if (isInvalid) {
+        console.log(
+          `[TextVerified] Skipping invalid service (cached): ${request.serviceName}`,
+        );
+        throw new Error(
+          `Incompatible service and options: Invalid 'service name' (cached)`,
+        );
+      }
+    } catch (e) {
+      // Re-throw only if it's our own intentional throw above
+      if (e instanceof Error && e.message.includes("Invalid 'service name'")) throw e;
+      // Otherwise Redis failed — continue to API
     }
 
-    // Check Redis cache first (cache for 30 minutes)
-    const cached = await redis.get(cacheKey);
-    if (cached) {
-      console.log(
-        `[TextVerified] Using cached pricing for ${request.serviceName}`,
-      );
-      return JSON.parse(cached); // TypeScript: cached is string due to truthy check
+    // Pricing cache — best-effort
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        console.log(
+          `[TextVerified] Using cached pricing for ${request.serviceName}`,
+        );
+        return JSON.parse(cached);
+      }
+    } catch {
+      // Redis unavailable — continue to live API
     }
 
     console.log(
@@ -294,7 +308,8 @@ export class TextVerifiedService {
         // Handle 400 Bad Request for incompatible service/option combinations
         // Cache the failure for 2 hours so we skip repeated API calls for the same invalid name
         if (response.status === 400) {
-          await redis.set(invalidCacheKey, "1", 2 * 60 * 60);
+          // Fire-and-forget negative cache
+          redis.set(invalidCacheKey, "1", 2 * 60 * 60).catch(() => {});
           throw new Error(`Incompatible service and options: ${errorText}`);
         }
 
@@ -321,8 +336,8 @@ export class TextVerifiedService {
         `[TextVerified] ✓ Price for ${pricingData.serviceName}: $${pricingData.price}`,
       );
 
-      // Cache for 30 minutes
-      await redis.set(cacheKey, JSON.stringify(pricingData), 30 * 60);
+      // Cache write is fire-and-forget
+      redis.set(cacheKey, JSON.stringify(pricingData), 30 * 60).catch(() => {});
 
       return pricingData;
     } catch (error) {

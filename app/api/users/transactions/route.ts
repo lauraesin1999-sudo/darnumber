@@ -23,9 +23,14 @@ export async function GET(req: NextRequest) {
 
     const filterKey = `${type}:${status}:${search}`;
 
-    const cached = await redis.getUserTransactions(userId, page, limit, filterKey);
-    if (cached) {
-      return json({ ok: true, data: cached });
+    // Cache read is best-effort — fall through to DB on Redis failure
+    try {
+      const cached = await redis.getUserTransactions(userId, page, limit, filterKey);
+      if (cached) {
+        return json({ ok: true, data: cached });
+      }
+    } catch {
+      // Redis unavailable — continue to DB
     }
 
     const skip = (page - 1) * limit;
@@ -95,7 +100,8 @@ export async function GET(req: NextRequest) {
       },
     };
 
-    await redis.setUserTransactions(userId, page, limit, filterKey, result, TX_CACHE_TTL);
+    // Cache write is fire-and-forget
+    redis.setUserTransactions(userId, page, limit, filterKey, result, TX_CACHE_TTL).catch(() => {});
 
     return json({ ok: true, data: result });
   } catch (e) {
