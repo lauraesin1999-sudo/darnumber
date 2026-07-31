@@ -371,12 +371,42 @@ export class OrderService {
         `[OrderService.calculateAuthoritativePrice] SMS-Man: ${priceRub} RUB ÷ ${rubToUsdRate} = $${baseUsd} USD`,
       );
     } else {
-      // TextVerified — use the fixed baseline; exact per-number price is fetched on checkout
-      const TV_DEFAULT_BASE_USD = 2.5;
-      baseUsd = TV_DEFAULT_BASE_USD;
-      console.log(
-        `[OrderService.calculateAuthoritativePrice] TextVerified: using baseline $${baseUsd} USD`,
-      );
+      // TextVerified — fetch the live price for this specific service
+      const tv = new TextVerifiedService();
+      const capabilitiesToTry: Array<"sms" | "voice" | "smsAndVoiceCombo"> = [
+        "sms",
+        "voice",
+        "smsAndVoiceCombo",
+      ];
+      let tvPrice: number | null = null;
+      for (const cap of capabilitiesToTry) {
+        try {
+          const result = await tv.getServicePricing({
+            serviceName: serviceCode,
+            areaCode: false,
+            carrier: false,
+            numberType: "mobile",
+            capability: cap,
+          });
+          if (result.price > 0) {
+            tvPrice = result.price;
+            console.log(
+              `[OrderService.calculateAuthoritativePrice] TextVerified: $${tvPrice} USD (capability=${cap})`,
+            );
+            break;
+          }
+        } catch (e) {
+          console.warn(
+            `[OrderService.calculateAuthoritativePrice] TextVerified pricing failed (capability=${cap}): ${(e as Error).message}`,
+          );
+        }
+      }
+      if (tvPrice === null) {
+        throw new Error(
+          `Unable to fetch live price for service "${serviceCode}" from TextVerified. Order cannot be processed.`,
+        );
+      }
+      baseUsd = tvPrice;
     }
 
     // Apply admin pricing rules: final = providerBase + markup
