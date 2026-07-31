@@ -371,42 +371,12 @@ export class OrderService {
         `[OrderService.calculateAuthoritativePrice] SMS-Man: ${priceRub} RUB ÷ ${rubToUsdRate} = $${baseUsd} USD`,
       );
     } else {
-      // TextVerified — fetch the live price for this specific service
-      const tv = new TextVerifiedService();
-      const capabilitiesToTry: Array<"sms" | "voice" | "smsAndVoiceCombo"> = [
-        "sms",
-        "voice",
-        "smsAndVoiceCombo",
-      ];
-      let tvPrice: number | null = null;
-      for (const cap of capabilitiesToTry) {
-        try {
-          const result = await tv.getServicePricing({
-            serviceName: serviceCode,
-            areaCode: false,
-            carrier: false,
-            numberType: "mobile",
-            capability: cap,
-          });
-          if (result.price > 0) {
-            tvPrice = result.price;
-            console.log(
-              `[OrderService.calculateAuthoritativePrice] TextVerified: $${tvPrice} USD (capability=${cap})`,
-            );
-            break;
-          }
-        } catch (e) {
-          console.warn(
-            `[OrderService.calculateAuthoritativePrice] TextVerified pricing failed (capability=${cap}): ${(e as Error).message}`,
-          );
-        }
-      }
-      if (tvPrice === null) {
-        throw new Error(
-          `Unable to fetch live price for service "${serviceCode}" from TextVerified. Order cannot be processed.`,
-        );
-      }
-      baseUsd = tvPrice;
+      // TextVerified — use the fixed baseline; exact per-number price is fetched on checkout
+      const TV_DEFAULT_BASE_USD = 2.5;
+      baseUsd = TV_DEFAULT_BASE_USD;
+      console.log(
+        `[OrderService.calculateAuthoritativePrice] TextVerified: using baseline $${baseUsd} USD`,
+      );
     }
 
     // Apply admin pricing rules: final = providerBase + markup
@@ -655,7 +625,7 @@ export class OrderService {
       }
     } catch (e) {
       console.warn(
-        "[OrderService] TextVerified details refresh failed",
+        "[OrderService] Panda details refresh failed",
         e instanceof Error ? e.message : String(e),
       );
     }
@@ -794,7 +764,7 @@ export class OrderService {
         // Fetch verification details, look for code
         const detailsUrl = externalId;
         console.log(
-          "[tryFetchAndUpdateSmsCode] Fetching TextVerified:",
+          "[tryFetchAndUpdateSmsCode] Fetching Panda:",
           detailsUrl,
         );
         // Try fetching messages from /messages endpoint
@@ -816,13 +786,13 @@ export class OrderService {
           });
         }
         console.log(
-          "[tryFetchAndUpdateSmsCode] TextVerified fetch status:",
+          "[tryFetchAndUpdateSmsCode] Panda fetch status:",
           res.status,
         );
         if (res.ok) {
           const data = await res.json();
           console.log(
-            "[tryFetchAndUpdateSmsCode] TextVerified response:",
+            "[tryFetchAndUpdateSmsCode] Panda response:",
             JSON.stringify(data, null, 2),
           );
           // TextVerified: code may be in data.messages[0].parsed_code or message content
@@ -874,17 +844,17 @@ export class OrderService {
             message = foundMessage;
             status = "COMPLETED";
             console.log(
-              "[tryFetchAndUpdateSmsCode] Found code in TextVerified:",
+              "[tryFetchAndUpdateSmsCode] Found code in Panda:",
               code,
             );
           } else {
             console.log(
-              "[tryFetchAndUpdateSmsCode] No code found in TextVerified response",
+              "[tryFetchAndUpdateSmsCode] No code found in Panda response",
             );
           }
         } else {
           console.log(
-            "[tryFetchAndUpdateSmsCode] TextVerified fetch failed:",
+            "[tryFetchAndUpdateSmsCode] Panda fetch failed:",
             res.status,
             await res.text(),
           );

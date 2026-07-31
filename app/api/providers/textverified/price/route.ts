@@ -53,13 +53,13 @@ export async function GET(req: NextRequest) {
         if (result.price > 0) {
           baseUsdPrice = result.price;
           console.log(
-            `[TextVerified][Price] Got price for ${serviceName} with capability=${cap}: $${result.price}`,
+            `[panda][Price] Got price for ${serviceName} with capability=${cap}: $${result.price}`,
           );
           break;
         }
       } catch (e) {
         console.warn(
-          `[TextVerified][Price] Pricing failed for ${serviceName} with capability=${cap}: ${(e as Error).message}`,
+          `[panda][Price] Pricing failed for ${serviceName} with capability=${cap}: ${(e as Error).message}`,
         );
         continue;
       }
@@ -67,7 +67,7 @@ export async function GET(req: NextRequest) {
 
     if (baseUsdPrice === null || baseUsdPrice <= 0) {
       console.warn(
-        `[TextVerified][Price] No valid price found for ${serviceName} after trying all capabilities`,
+        `[panda][Price] No valid price found for ${serviceName} after trying all capabilities`,
       );
       return error(`Price not available for service: ${serviceName}`, 404);
     }
@@ -101,7 +101,7 @@ export async function GET(req: NextRequest) {
       : "(Default 20% markup)";
 
     console.log(
-      `[TextVerified][Price] ${serviceName}: Base $${baseUsdPrice.toFixed(
+      `[panda][Price] ${serviceName}: Base $${baseUsdPrice.toFixed(
         2,
       )} + profit $${profitUsd.toFixed(2)} = $${finalUsdPrice.toFixed(
         2,
@@ -123,7 +123,7 @@ export async function GET(req: NextRequest) {
   } catch (e) {
     const err = e as Error;
     console.error(
-      `[API][TextVerified][Price] Failed to fetch price for ${serviceName}:`,
+      `[API][panda][Price] Failed to fetch price for ${serviceName}:`,
       err,
     );
     return error(err.message, 500);

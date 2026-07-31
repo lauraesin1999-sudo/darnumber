@@ -27,14 +27,14 @@ export async function GET(req: NextRequest) {
     let tvServices: any[] = [];
     let tvError: string | null = null;
     try {
-      console.log("Testing TextVerified API...");
+      console.log("Testing Panda API...");
       const textVerifiedService = new TextVerifiedService();
       tvServices = await textVerifiedService.getAvailableServices();
-      console.log("TextVerified services count:", tvServices.length);
-      console.log("Sample TextVerified service:", tvServices[0]);
+      console.log("Panda services count:", tvServices.length);
+      console.log("Sample Panda service:", tvServices[0]);
     } catch (err) {
       tvError = err instanceof Error ? err.message : "Unknown error";
-      console.error("TextVerified error:", tvError);
+      console.error("Panda error:", tvError);
     }
 
     const result = {

@@ -194,7 +194,7 @@ export default function CheckoutPage() {
             <Button
               disabled
               variant="secondary"
-              onClick={requestDedicatedAccount}
+              // onClick={requestDedicatedAccount}
               // disabled={loading}
               className="w-full sm:w-auto whitespace-nowrap"
             >

@@ -490,7 +490,7 @@ export default function NewOrderPage() {
       } catch (e) {
         if (!cancelled) {
           console.warn(
-            `[NewOrderPage] Failed to fetch exact TextVerified price for ${selectedService}:`,
+            `[NewOrderPage] Failed to fetch exact price for ${selectedService}:`,
             e,
           );
         }

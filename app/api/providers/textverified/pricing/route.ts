@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
   try {
     // Authenticate user
     const authResult = await requireAuth();
-    console.log(`[TextVerified][Pricing] ✓ User ${authResult?.user?.email} authenticated`);
+    console.log(`[panda][Pricing] ✓ User ${authResult?.user?.email} authenticated`);
 
     const body = await req.json();
 
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
       return error("capability must be one of: sms, voice, smsAndVoiceCombo", 400);
     }
 
-    console.log(`[TextVerified][Pricing] Fetching pricing for:`, {
+    console.log(`[panda][Pricing] Fetching pricing for:`, {
       serviceName,
       areaCode,
       carrier,
@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
       capability
     });
 
-    console.log(`[TextVerified][Pricing] ✓ Price for ${pricing.serviceName}: $${pricing.price}`);
+    console.log(`[panda][Pricing] ✓ Price for ${pricing.serviceName}: $${pricing.price}`);
 
     return json({
       ok: true,
@@ -85,15 +85,15 @@ export async function POST(req: NextRequest) {
 
   } catch (e) {
     const err = e as Error;
-    console.error("[TextVerified][Pricing] Failed to fetch pricing:", err);
+    console.error("[panda][Pricing] Failed to fetch pricing:", err);
     
     // Handle specific error cases
     if (err.message.includes("API key") || err.message.includes("username")) {
-      return error("TextVerified API credentials not configured", 500);
+      return error("Panda API credentials not configured", 500);
     }
     
     if (err.message.includes("Bearer token")) {
-      return error("Failed to authenticate with TextVerified API", 500);
+      return error("Failed to authenticate with Panda API", 500);
     }
     
     if (err.message.includes("Incompatible service and options")) {

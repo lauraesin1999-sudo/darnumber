@@ -132,18 +132,21 @@ export default function WalletPage() {
         {/* Dedicated Virtual Account */}
         <Card className="p-4 md:p-6 space-y-3">
           <h2 className="text-lg md:text-xl font-bold">
-            Your Dedicated Account
+          Dedicated Account Number
           </h2>
           {dvaError && (
             <p className="text-sm md:text-base text-red-800">{dvaError}</p>
           )}
           {!dva && !dvaError && !dvaProvisioning && (
             <p className="text-sm md:text-base text-muted-foreground">
-              No dedicated account yet. Generate one from the checkout page or
-              here.
+              {/* No dedicated account yet. Generate one from the checkout page or
+              here. */}
+             <span className="text-amber-700">Effective immediately, deposits into dedicated virtual accounts will no longer be processed. </span> 
+             We are currently working to bring back this service.
+             
             </p>
           )}
-          {dva && (
+          {/* {dva && (
             <div className="border rounded-lg p-3 md:p-4 text-xs md:text-sm space-y-2">
               <div className="font-medium">{dva.bankName}</div>
               <div>Account Name: {dva.accountName}</div>
@@ -177,7 +180,7 @@ export default function WalletPage() {
                 </Button>
               </div>
             </div>
-          )}
+          )} */}
           {dvaProvisioning && (
             <p className="text-sm md:text-base text-green-600">
               Your dedicated account is being provisioned. This can take a few
@@ -185,96 +188,96 @@ export default function WalletPage() {
             </p>
           )}
           <div className="flex gap-2">
-            <Button
+            {/* <Button
               disabled={true}
               variant="secondary"
-              onClick={async () => {
-                setDvaError("");
-                const now = Date.now();
-                if (now < dvaCooldownUntil) {
-                  setDvaError(
-                    `Please wait ${Math.ceil(
-                      (dvaCooldownUntil - now) / 1000
-                    )}s before requesting again.`
-                  );
-                  return;
-                }
-                setDvaCooldownUntil(now + cooldownMs);
-                try {
-                  const res = await fetch(
-                    "/api/payments/paystack/dedicated-account",
-                    {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ preferredBank: "wema-bank" }),
-                    }
-                  );
-                  const json = await res.json();
-                  if (!res.ok) {
-                    throw new Error(
-                      json?.error?.message ||
-                        json?.error ||
-                        "Failed to request dedicated account"
-                    );
-                  }
-                  const data = json?.data;
-                  if ((data as any)?.status === "PENDING") {
-                    setDvaProvisioning(true);
-                    // Begin polling GET every 20s until details exist
-                    const interval = setInterval(async () => {
-                      try {
-                        const getRes = await fetch(
-                          "/api/payments/paystack/dedicated-account",
-                          {
-                            method: "GET",
-                          }
-                        );
-                        const getJson = await getRes.json();
-                        const got = getJson?.data;
-                        if (
-                          got?.bankName &&
-                          got?.accountNumber &&
-                          got?.accountName
-                        ) {
-                          setDva(got);
-                          setDvaProvisioning(false);
-                          clearInterval(interval);
-                        }
-                      } catch {}
-                    }, 20000);
-                  } else {
-                    if (
-                      !data?.bankName ||
-                      !data?.accountNumber ||
-                      !data?.accountName
-                    ) {
-                      setDvaError(
-                        "Missing account details from provider. Please try again or contact support."
-                      );
-                      return;
-                    }
-                    setDva(data);
-                  }
-                } catch (e: any) {
-                  const msg =
-                    e?.response?.data?.error?.message ||
-                    e?.response?.data?.error ||
-                    e?.message ||
-                    "Failed to request dedicated account";
-                  if (msg.includes("Paystack secret not configured")) {
-                    setDvaError(
-                      "Paystack secret not configured. Please set PAYSTACK_SECRET_KEY in .env and restart the server."
-                    );
-                  } else {
-                    setDvaError(msg);
-                  }
-                } finally {
-                  setTimeout(() => setDvaCooldownUntil(0), cooldownMs);
-                }
-              }}
+              // onClick={async () => {
+              //   setDvaError("");
+              //   const now = Date.now();
+              //   if (now < dvaCooldownUntil) {
+              //     setDvaError(
+              //       `Please wait ${Math.ceil(
+              //         (dvaCooldownUntil - now) / 1000
+              //       )}s before requesting again.`
+              //     );
+              //     return;
+              //   }
+              //   setDvaCooldownUntil(now + cooldownMs);
+              //   try {
+              //     const res = await fetch(
+              //       "/api/payments/paystack/dedicated-account",
+              //       {
+              //         method: "POST",
+              //         headers: { "Content-Type": "application/json" },
+              //         body: JSON.stringify({ preferredBank: "wema-bank" }),
+              //       }
+              //     );
+              //     const json = await res.json();
+              //     if (!res.ok) {
+              //       throw new Error(
+              //         json?.error?.message ||
+              //           json?.error ||
+              //           "Failed to request dedicated account"
+              //       );
+              //     }
+              //     const data = json?.data;
+              //     if ((data as any)?.status === "PENDING") {
+              //       setDvaProvisioning(true);
+              //       // Begin polling GET every 20s until details exist
+              //       const interval = setInterval(async () => {
+              //         try {
+              //           const getRes = await fetch(
+              //             "/api/payments/paystack/dedicated-account",
+              //             {
+              //               method: "GET",
+              //             }
+              //           );
+              //           const getJson = await getRes.json();
+              //           const got = getJson?.data;
+              //           if (
+              //             got?.bankName &&
+              //             got?.accountNumber &&
+              //             got?.accountName
+              //           ) {
+              //             setDva(got);
+              //             setDvaProvisioning(false);
+              //             clearInterval(interval);
+              //           }
+              //         } catch {}
+              //       }, 20000);
+              //     } else {
+              //       if (
+              //         !data?.bankName ||
+              //         !data?.accountNumber ||
+              //         !data?.accountName
+              //       ) {
+              //         setDvaError(
+              //           "Missing account details from provider. Please try again or contact support."
+              //         );
+              //         return;
+              //       }
+              //       setDva(data);
+              //     }
+              //   } catch (e: any) {
+              //     const msg =
+              //       e?.response?.data?.error?.message ||
+              //       e?.response?.data?.error ||
+              //       e?.message ||
+              //       "Failed to request dedicated account";
+              //     if (msg.includes("Paystack secret not configured")) {
+              //       setDvaError(
+              //         "Paystack secret not configured. Please set PAYSTACK_SECRET_KEY in .env and restart the server."
+              //       );
+              //     } else {
+              //       setDvaError(msg);
+              //     }
+              //   } finally {
+              //     setTimeout(() => setDvaCooldownUntil(0), cooldownMs);
+              //   }
+              // }}
             >
               {dva ? "Regenerate Account" : "Generate Dedicated Account"}
-            </Button>
+            </Button> */}
             <Button variant="outline" onClick={handleDeposit}>
               Fund via Checkout
             </Button>

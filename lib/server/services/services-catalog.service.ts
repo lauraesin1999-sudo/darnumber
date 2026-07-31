@@ -171,7 +171,7 @@ export async function buildAndCacheServices(): Promise<CatalogCacheStore | null>
               price: TV_DEFAULT_BASE_PRICE_USD,
             }));
             console.log(
-              `[TextVerified] ✓ Fetched ${services.length} services (baseline pricing)`,
+              `[Panda] ✓ Fetched ${services.length} services (baseline pricing)`,
             );
             return services;
           })(),
@@ -194,7 +194,7 @@ export async function buildAndCacheServices(): Promise<CatalogCacheStore | null>
       const tvServices = tvResult.status === "fulfilled" ? tvResult.value : [];
       if (tvResult.status === "rejected") {
         console.error(
-          "[TextVerified] ✗ Error:",
+          "[Panda] ✗ Error:",
           tvResult.reason instanceof Error
             ? tvResult.reason.message
             : tvResult.reason,
@@ -425,7 +425,7 @@ async function buildSkeletonCatalog(): Promise<CatalogPayload | null> {
           "TextVerified services",
           15_000,
         ).catch((e) => {
-          console.warn("[Catalog] Skeleton TextVerified failed:", e);
+          console.warn("[Catalog] Skeleton Panda failed:", e);
           return [] as Array<{ serviceName?: string; capability?: string }>;
         }),
       ]);

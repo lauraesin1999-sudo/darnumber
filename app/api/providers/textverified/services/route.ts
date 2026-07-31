@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
   try {
     // Authenticate user
     const authResult = await requireAuth();
-    console.log(`[TextVerified][Services] ✓ User ${authResult?.user?.email} authenticated`);
+    console.log(`[Panda][Services] ✓ User ${authResult?.user?.email} authenticated`);
 
     // Parse query parameters
     const numberType = (req.nextUrl.searchParams.get("numberType") as 'mobile' | 'voip' | 'landline') || 'mobile';
@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
     const areaCode = req.nextUrl.searchParams.get("areaCode") === 'true';
     const carrier = req.nextUrl.searchParams.get("carrier") === 'true';
 
-    console.log(`[TextVerified][Services] Fetching with params:`, {
+    console.log(`[Panda][Services] Fetching with params:`, {
       numberType,
       reservationType,
       withPricing,
@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
       services = await textVerifiedService.getAvailableServices(numberType, reservationType);
     }
 
-    console.log(`[TextVerified][Services] ✓ Successfully fetched ${services.length} services`);
+    console.log(`[Panda][Services] ✓ Successfully fetched ${services.length} services`);
 
     return json({
       ok: true,
@@ -64,15 +64,15 @@ export async function GET(req: NextRequest) {
 
   } catch (e) {
     const err = e as Error;
-    console.error("[TextVerified][Services] Failed to fetch services:", err);
+    console.error("[Panda][Services] Failed to fetch services:", err);
     
     // Handle specific error cases
     if (err.message.includes("API key") || err.message.includes("username")) {
-      return error("TextVerified API credentials not configured", 500);
+      return error("Panda API credentials not configured", 500);
     }
     
     if (err.message.includes("Bearer token")) {
-      return error("Failed to authenticate with TextVerified API", 500);
+      return error("Failed to authenticate with Panda API", 500);
     }
 
     return error(err.message, 500);

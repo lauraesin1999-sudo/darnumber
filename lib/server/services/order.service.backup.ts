@@ -341,7 +341,7 @@ export class OrderService {
       }
     } catch (e) {
       console.warn(
-        "[OrderService] TextVerified details refresh failed",
+        "[OrderService] Panda details refresh failed",
         e instanceof Error ? e.message : String(e),
       );
     }
@@ -414,7 +414,7 @@ export class OrderService {
                 data: {
                   level: "INFO",
                   service: "order-processor",
-                  message: "Auto-expire: provider cancellation (TextVerified)",
+                  message: "Auto-expire: provider cancellation (Panda)",
                   metadata: {
                     orderId: order.id,
                     externalId: order.externalId,
@@ -480,7 +480,7 @@ export class OrderService {
         // Fetch verification details, look for code
         const detailsUrl = externalId;
         console.log(
-          "[tryFetchAndUpdateSmsCode] Fetching TextVerified:",
+          "[tryFetchAndUpdateSmsCode] Fetching Panda:",
           detailsUrl,
         );
         // Try fetching messages from /messages endpoint
@@ -502,13 +502,13 @@ export class OrderService {
           });
         }
         console.log(
-          "[tryFetchAndUpdateSmsCode] TextVerified fetch status:",
+          "[tryFetchAndUpdateSmsCode] Panda fetch status:",
           res.status,
         );
         if (res.ok) {
           const data = await res.json();
           console.log(
-            "[tryFetchAndUpdateSmsCode] TextVerified response:",
+            "[tryFetchAndUpdateSmsCode] Panda response:",
             JSON.stringify(data, null, 2),
           );
           // TextVerified: code may be in data.messages[0].parsed_code or message content
@@ -560,17 +560,17 @@ export class OrderService {
             message = foundMessage;
             status = "COMPLETED";
             console.log(
-              "[tryFetchAndUpdateSmsCode] Found code in TextVerified:",
+              "[tryFetchAndUpdateSmsCode] Found code in Panda:",
               code,
             );
           } else {
             console.log(
-              "[tryFetchAndUpdateSmsCode] No code found in TextVerified response",
+              "[tryFetchAndUpdateSmsCode] No code found in Panda response",
             );
           }
         } else {
           console.log(
-            "[tryFetchAndUpdateSmsCode] TextVerified fetch failed:",
+            "[tryFetchAndUpdateSmsCode] Panda fetch failed:",
             res.status,
             await res.text(),
           );
@@ -579,7 +579,7 @@ export class OrderService {
         // SMSMan: poll for code
         const apiKey = process.env.SMSMAN_API_KEY;
         if (!apiKey) {
-          console.log("[tryFetchAndUpdateSmsCode] No SMSMAN_API_KEY");
+          console.log("[tryFetchAndUpdateSmsCode] No Lion");
           return;
         }
         // externalId is request_id
@@ -795,7 +795,7 @@ export class OrderService {
             data: {
               level: "INFO",
               service: "order-processor",
-              message: "Provider cancellation executed (TextVerified)",
+              message: "Provider cancellation executed (Panda)",
               metadata: {
                 orderId: order.id,
                 externalId: order.externalId,
@@ -1086,14 +1086,14 @@ export class TextVerifiedService {
   public async getBearerToken(): Promise<string> {
     // Check if we have a valid cached token
     if (this.bearerToken && Date.now() < this.tokenExpiry) {
-      console.log("[TextVerified] Using cached bearer token");
+      console.log("[Panda] Using cached bearer token");
       return this.bearerToken;
     }
 
-    console.log("[TextVerified] Generating new bearer token...");
+    console.log("[Panda] Generating new bearer token...");
 
     if (!this.apiKey || !this.apiUsername) {
-      throw new Error("TextVerified API key or username not configured");
+      throw new Error("Panda API key or username not configured");
     }
 
     const authUrl = `${this.apiUrl}/auth`;
@@ -1122,7 +1122,7 @@ export class TextVerifiedService {
 
     // Cache token for 50 minutes (assuming 60min expiry)
     this.tokenExpiry = Date.now() + 50 * 60 * 1000;
-    console.log("[TextVerified] ✓ Bearer token generated successfully");
+    console.log("[Panda] ✓ Bearer token generated successfully");
 
     return this.bearerToken;
   }
@@ -1143,20 +1143,20 @@ export class TextVerifiedService {
     });
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(`Failed to cancel TextVerified verification: ${text}`);
+      throw new Error(`Failed to cancel Panda verification: ${text}`);
     }
-    console.log(`[TextVerified] Cancelled verification ${id}`);
+    console.log(`[Panda] Cancelled verification ${id}`);
   }
 
   async getAvailableServices() {
     // Check cache first (cache for 1 hour)
     if (this.servicesCache && Date.now() < this.servicesCacheExpiry) {
-      console.log("[TextVerified] Using cached services list");
+      console.log("[Panda] Using cached services list");
       return this.servicesCache;
     }
 
     console.log("\n╔═══════════════════════════════════════════════╗");
-    console.log("║ TextVerified - Fetching ALL Available Services");
+    console.log("║ Panda - Fetching ALL Available Services");
     console.log("╚═══════════════════════════════════════════════╝");
 
     try {
@@ -1169,7 +1169,7 @@ export class TextVerifiedService {
         reservationType: "verification",
       }).toString();
       const servicesUrl = `${this.apiUrl}/services?${servicesParams}`;
-      console.log(`[TextVerified] Fetching services from: ${servicesUrl}`);
+      console.log(`[Panda] Fetching services from: ${servicesUrl}`);
 
       const servicesResponse = await fetchWithRetry(servicesUrl, {
         method: "GET",
@@ -1180,15 +1180,15 @@ export class TextVerifiedService {
       });
 
       console.log(
-        `[TextVerified] Services response: ${servicesResponse.status} ${servicesResponse.statusText}`,
+        `[Panda] Services response: ${servicesResponse.status} ${servicesResponse.statusText}`,
       );
 
       if (!servicesResponse.ok) {
         const errorText = await servicesResponse.text();
-        console.error(`[TextVerified] API Error: ${servicesResponse.status}`);
-        console.error(`[TextVerified] Error body:`, errorText);
+        console.error(`[Panda] API Error: ${servicesResponse.status}`);
+        console.error(`[Panda] Error body:`, errorText);
         throw new Error(
-          `TextVerified API error: ${servicesResponse.status} - ${errorText}`,
+          `Panda API error: ${servicesResponse.status} - ${errorText}`,
         );
       }
 
@@ -1204,18 +1204,18 @@ export class TextVerifiedService {
       const servicesList = extractServices(servicesData);
 
       console.log(
-        `[TextVerified] Total services found: ${servicesList.length}`,
+        `[Panda] Total services found: ${servicesList.length}`,
       );
 
       if (servicesList.length === 0) {
-        console.warn(`[TextVerified] ⚠️  No services returned from API`);
+        console.warn(`[Panda] ⚠️  No services returned from API`);
         console.warn(
-          `[TextVerified] Raw services payload keys: ${Object.keys(
+          `[Panda] Raw services payload keys: ${Object.keys(
             servicesData || {},
           ).join(", ")}`,
         );
         console.warn(
-          `[TextVerified] Raw:`,
+          `[Panda] Raw:`,
           JSON.stringify(servicesData).slice(0, 1000),
         );
         return [];
@@ -1224,7 +1224,7 @@ export class TextVerifiedService {
       // Log first service to see available fields
       if (servicesList.length > 0) {
         console.log(
-          `[TextVerified] Sample service fields:`,
+          `[Panda] Sample service fields:`,
           JSON.stringify(servicesList[0], null, 2),
         );
       }
@@ -1247,7 +1247,7 @@ export class TextVerifiedService {
           countryName: "United States",
           price: typeof price === "number" ? price : parseFloat(price) || 0,
           count: 100, // Placeholder
-          providerId: "textverified",
+          providerId: "Panda",
           currency: "USD",
           capability: service.capability || "sms",
         };
@@ -1256,7 +1256,7 @@ export class TextVerifiedService {
       // Count services with pricing data
       const servicesWithPrice = services.filter((s: any) => s.price > 0).length;
       console.log(
-        `\n[TextVerified] ✅ Successfully processed ${services.length} services (${servicesWithPrice} with pricing)`,
+        `\n[Panda] ✅ Successfully processed ${services.length} services (${servicesWithPrice} with pricing)`,
       );
       console.log("╚═══════════════════════════════════════════════╝\n");
 
@@ -1266,13 +1266,13 @@ export class TextVerifiedService {
 
       return services;
     } catch (err) {
-      console.error("\n[TextVerified] ❌ FATAL ERROR");
+      console.error("\n[Panda] ❌ FATAL ERROR");
       console.error(
-        "[TextVerified] Error:",
+        "[Panda] Error:",
         err instanceof Error ? err.message : err,
       );
       if (err instanceof Error) {
-        console.error("[TextVerified] Stack:", err.stack);
+        console.error("[Panda] Stack:", err.stack);
       }
       console.log("╚═══════════════════════════════════════════════╝\n");
 
@@ -1287,7 +1287,7 @@ export class TextVerifiedService {
    */
   async fetchAndCacheServicePrice(serviceName: string): Promise<number | null> {
     console.log(
-      `[TextVerified][Price] Fetching price for service: ${serviceName}`,
+      `[Panda][Price] Fetching price for service: ${serviceName}`,
     );
     const cacheKey = `textverified:price:${serviceName}`;
 
@@ -1295,12 +1295,12 @@ export class TextVerifiedService {
     const cachedPrice = await redis.get(cacheKey);
     if (cachedPrice && cachedPrice !== "-1" && parseFloat(cachedPrice) > 0) {
       console.log(
-        `[TextVerified][Cache] ✓ HIT for ${serviceName}: $${cachedPrice}`,
+        `[Panda][Cache] ✓ HIT for ${serviceName}: $${cachedPrice}`,
       );
       return parseFloat(cachedPrice);
     }
 
-    console.log(`[TextVerified][Cache] ✗ MISS for ${serviceName}`);
+    console.log(`[Panda][Cache] ✗ MISS for ${serviceName}`);
 
     // 2. Try to get price from the services list (which may have prices from API)
     try {
@@ -1313,20 +1313,20 @@ export class TextVerifiedService {
 
       if (service && service.price > 0) {
         console.log(
-          `[TextVerified][Price] Found price from services list for ${serviceName}: $${service.price}`,
+          `[Panda][Price] Found price from services list for ${serviceName}: $${service.price}`,
         );
         await redis.set(cacheKey, service.price.toString(), 60 * 60 * 24);
         return service.price;
       }
     } catch (e) {
-      console.warn(`[TextVerified][Price] Failed to get services list:`, e);
+      console.warn(`[Panda][Price] Failed to get services list:`, e);
     }
 
     // 3. Fallback to default base price
     const defaultPrice = 0; // Minimum base price in USD
 
     console.log(
-      `[TextVerified][Price] Using default base price for ${serviceName}: $${defaultPrice.toFixed(
+      `[Panda][Price] Using default base price for ${serviceName}: $${defaultPrice.toFixed(
         2,
       )}`,
     );
@@ -1334,7 +1334,7 @@ export class TextVerifiedService {
     await redis.set(cacheKey, defaultPrice.toString(), 60 * 60 * 24); // Cache for 24 hours
 
     console.log(
-      `[TextVerified][Price] ✓ Cached price for ${serviceName}: $${defaultPrice.toFixed(
+      `[Panda][Price] ✓ Cached price for ${serviceName}: $${defaultPrice.toFixed(
         2,
       )}`,
     );
@@ -1348,33 +1348,33 @@ export class TextVerifiedService {
     orderId: string,
   ): Promise<{ id: string; phoneNumber: string; cost?: number }> {
     console.log("\n╔════════════════════════════════════════════════╗");
-    console.log("║  TextVerified - Requesting Number");
+    console.log("║  Panda - Requesting Number");
     console.log("╚════════════════════════════════════════════════╝");
-    console.log(`[TextVerified][Request] Order ID: ${orderId}`);
-    console.log(`[TextVerified][Request] Service: ${serviceName}`);
-    console.log(`[TextVerified][Request] Country: ${country}`);
+    console.log(`[Panda][Request] Order ID: ${orderId}`);
+    console.log(`[Panda][Request] Service: ${serviceName}`);
+    console.log(`[TextVeriPandafied][Request] Country: ${country}`);
 
     if (country !== "US") {
-      console.error(`[TextVerified][Request] ✗ Invalid country: ${country}`);
-      throw new Error("TextVerified only supports the US.");
+      console.error(`[Panda][Request] ✗ Invalid country: ${country}`);
+      throw new Error("Panda only supports the US.");
     }
 
-    console.log(`[TextVerified][Request] Step 1: Getting bearer token...`);
+    console.log(`[Panda][Request] Step 1: Getting bearer token...`);
     const bearerToken = await this.getBearerToken();
-    console.log(`[TextVerified][Request] ✓ Bearer token obtained`);
+    console.log(`[Panda][Request] ✓ Bearer token obtained`);
 
     const verificationUrl = `${this.apiUrl}/verifications`;
 
     console.log(
-      `[TextVerified][Request] Step 2: Fetching service capability...`,
+      `[Panda][Request] Step 2: Fetching service capability...`,
     );
     // Fetch the service capability from the services list
     const services = await this.getAvailableServices();
     const service = services.find((s: any) => s.code === serviceName);
     const capability = service?.capability || "sms";
 
-    console.log(`[TextVerified][Request] ✓ Capability: ${capability}`);
-    console.log(`[TextVerified][Request] Step 3: Creating verification...`);
+    console.log(`[Panda][Request] ✓ Capability: ${capability}`);
+    console.log(`[Panda][Request] Step 3: Creating verification...`);
 
     const body = {
       serviceName,
@@ -1382,7 +1382,7 @@ export class TextVerifiedService {
     };
 
     console.log(
-      `[TextVerified][Request] Request body:`,
+      `[Panda][Request] Request body:`,
       JSON.stringify(body, null, 2),
     );
 
@@ -1396,7 +1396,7 @@ export class TextVerifiedService {
     });
 
     console.log(
-      `[TextVerified][Response] Status: ${res.status} ${res.statusText}`,
+      `[Panda][Response] Status: ${res.status} ${res.statusText}`,
     );
 
     // Check if response is JSON before parsing
@@ -1406,17 +1406,17 @@ export class TextVerifiedService {
     if (contentType && contentType.includes("application/json")) {
       responseData = await res.json();
       console.log(
-        `[TextVerified][Response] Body:`,
+        `[Panda][Response] Body:`,
         JSON.stringify(responseData, null, 2),
       );
     } else {
       const textResponse = await res.text();
       console.error(
-        `[TextVerified][Response] ✗ Non-JSON response (${res.status}):`,
+        `[Panda][Response] ✗ Non-JSON response (${res.status}):`,
         textResponse.substring(0, 500),
       );
       throw new Error(
-        `TextVerified API returned non-JSON response (${
+        `Panda API returned non-JSON response (${
           res.status
         }): ${textResponse.substring(0, 200)}`,
       );
@@ -1428,7 +1428,7 @@ export class TextVerifiedService {
         responseData.error ||
         JSON.stringify(responseData);
       console.error(
-        `[TextVerified][Response] ✗ Request failed (${res.status}): ${errorMsg}`,
+        `[Panda][Response] ✗ Request failed (${res.status}): ${errorMsg}`,
       );
       console.log("╚════════════════════════════════════════════════╝\n");
       throw new Error(
@@ -1440,11 +1440,11 @@ export class TextVerifiedService {
     const href: string | undefined = responseData.href;
     if (!href) {
       console.error(
-        `[TextVerified][Response] ✗ Missing verification href in response`,
+        `[Panda][Response] ✗ Missing verification href in response`,
       );
       console.log("╚════════════════════════════════════════════════╝\n");
       throw new Error(
-        `TextVerified response missing verification href: ${JSON.stringify(
+        `Panda response missing verification href: ${JSON.stringify(
           responseData,
         )}`,
       );
@@ -1453,14 +1453,14 @@ export class TextVerifiedService {
     // Use the href as the external identifier; also keep a short id if needed
     const shortId = href.split("/").pop();
 
-    console.log(`[TextVerified][Success] ✓ Verification created`);
-    console.log(`[TextVerified][Success]   Href: ${href}`);
-    if (shortId) console.log(`[TextVerified][Success]   ID: ${shortId}`);
+    console.log(`[Panda][Success] ✓ Verification created`);
+    console.log(`[Panda][Success]   Href: ${href}`);
+    if (shortId) console.log(`[Panda][Success]   ID: ${shortId}`);
     console.log(
-      `[TextVerified][Success]   Number: ${responseData.number || "pending"}`,
+      `[Panda][Success]   Number: ${responseData.number || "pending"}`,
     );
     console.log(
-      `[TextVerified][Success]   Cost: $${responseData.price || "N/A"}`,
+      `[Panda][Success]   Cost: $${responseData.price || "N/A"}`,
     );
     console.log("╚════════════════════════════════════════════════╝\n");
 
@@ -1485,7 +1485,7 @@ export class TextVerifiedService {
     if (!res.ok) {
       const text = await res.text();
       console.warn(
-        `[TextVerified] Failed to fetch verification details (${res.status}): ${text}`,
+        `[Panda] Failed to fetch verification details (${res.status}): ${text}`,
       );
       return null;
     }
