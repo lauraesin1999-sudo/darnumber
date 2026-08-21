@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/server/prisma";
 import { Prisma } from "@/app/generated/prisma";
+import { logger } from "@/lib/logger";
 
 /**
  * Free exchange rates via MoneyConvert (https://moneyconvert.net/api/).
@@ -53,7 +54,7 @@ export class ExchangeRateService {
           CACHE_DURATION_HOURS * 60 * 60 * 1000;
 
       if (cacheValid && cached) {
-        console.log(
+        logger.info(
           `[ExchangeRate] ✓ Using cached rate: 1 ${fromCurrency} = ${
             cached.rate
           } ${toCurrency} (age: ${Math.round(
@@ -64,7 +65,7 @@ export class ExchangeRateService {
       }
 
       // Cache miss or stale - fetch from API
-      console.log(
+      logger.info(
         `[ExchangeRate] Cache ${
           cached ? "stale" : "miss"
         } for ${fromCurrency}/${toCurrency}, fetching from MoneyConvert...`,
@@ -90,12 +91,12 @@ export class ExchangeRateService {
         },
       });
 
-      console.log(
+      logger.info(
         `[ExchangeRate] ✓ Cached new rate: 1 ${fromCurrency} = ${rate} ${toCurrency}`,
       );
       return rate;
     } catch (error) {
-      console.error(
+      logger.error(
         `[ExchangeRate] Error getting rate for ${fromCurrency}/${toCurrency}:`,
         error,
       );
@@ -111,13 +112,13 @@ export class ExchangeRateService {
         });
 
         if (staleCache) {
-          console.warn(
+          logger.warn(
             `[ExchangeRate] ⚠ Using stale cache as fallback: ${staleCache.rate}`,
           );
           return Number(staleCache.rate);
         }
       } catch (dbErr) {
-        console.warn(
+        logger.warn(
           `[ExchangeRate] ⚠ Skipping stale cache lookup due to DB error:`,
           dbErr,
         );
@@ -198,7 +199,7 @@ export class ExchangeRateService {
     const rates = { ...data.rates, USD: data.rates.USD ?? 1 };
 
     this.ratesSnapshot = { rates, fetchedAt: Date.now() };
-    console.log(
+    logger.info(
       `[ExchangeRate] ✓ Fetched MoneyConvert rates (ts: ${data.ts || "n/a"}, currencies: ${Object.keys(rates).length})`,
     );
     return rates;
@@ -212,7 +213,7 @@ export class ExchangeRateService {
     fromCurrency: string,
     toCurrency: string,
   ): number {
-    console.error(
+    logger.error(
       `[ExchangeRate] ✗ Using hardcoded fallback for ${fromCurrency}/${toCurrency}`,
     );
 
@@ -247,7 +248,7 @@ export class ExchangeRateService {
    * Forces a fresh API pull by clearing the in-process snapshot first.
    */
   static async refreshCommonRates(): Promise<void> {
-    console.log("[ExchangeRate] Refreshing common exchange rates via MoneyConvert...");
+    logger.info("[ExchangeRate] Refreshing common exchange rates via MoneyConvert...");
     this.ratesSnapshot = null;
 
     const commonPairs = [
@@ -289,18 +290,18 @@ export class ExchangeRateService {
               rate: new Prisma.Decimal(rate),
             },
           });
-          console.log(
+          logger.info(
             `[ExchangeRate] ✓ Refreshed 1 ${pair.from} = ${rate} ${pair.to}`,
           );
         } catch (error) {
-          console.error(
+          logger.error(
             `[ExchangeRate] Failed to refresh ${pair.from}/${pair.to}:`,
             error,
           );
         }
       }
     } catch (error) {
-      console.error("[ExchangeRate] Failed to fetch MoneyConvert rates:", error);
+      logger.error("[ExchangeRate] Failed to fetch MoneyConvert rates:", error);
       // Fall back to getRate which will use stale/hardcoded
       for (const pair of commonPairs) {
         try {
@@ -311,7 +312,7 @@ export class ExchangeRateService {
       }
     }
 
-    console.log("[ExchangeRate] ✓ Refresh complete");
+    logger.info("[ExchangeRate] ✓ Refresh complete");
   }
 
   /**

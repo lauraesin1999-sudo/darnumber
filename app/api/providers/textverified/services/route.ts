@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { json, error } from "@/lib/server/utils/response";
 import { TextVerifiedService } from "@/lib/server/services/textverified.service";
 import { requireAuth } from "@/lib/server/auth";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 
@@ -17,7 +18,7 @@ export async function GET(req: NextRequest) {
   try {
     // Authenticate user
     const authResult = await requireAuth();
-    console.log(`[Panda][Services] ✓ User ${authResult?.user?.email} authenticated`);
+    logger.info(`[Panda][Services] ✓ User ${authResult?.user?.email} authenticated`);
 
     // Parse query parameters
     const numberType = (req.nextUrl.searchParams.get("numberType") as 'mobile' | 'voip' | 'landline') || 'mobile';
@@ -26,7 +27,7 @@ export async function GET(req: NextRequest) {
     const areaCode = req.nextUrl.searchParams.get("areaCode") === 'true';
     const carrier = req.nextUrl.searchParams.get("carrier") === 'true';
 
-    console.log(`[Panda][Services] Fetching with params:`, {
+    logger.info(`[Panda][Services] Fetching with params:`, {
       numberType,
       reservationType,
       withPricing,
@@ -45,7 +46,7 @@ export async function GET(req: NextRequest) {
       services = await textVerifiedService.getAvailableServices(numberType, reservationType);
     }
 
-    console.log(`[Panda][Services] ✓ Successfully fetched ${services.length} services`);
+    logger.info(`[Panda][Services] ✓ Successfully fetched ${services.length} services`);
 
     return json({
       ok: true,
@@ -64,7 +65,7 @@ export async function GET(req: NextRequest) {
 
   } catch (e) {
     const err = e as Error;
-    console.error("[Panda][Services] Failed to fetch services:", err);
+    logger.error("[Panda][Services] Failed to fetch services:", err);
     
     // Handle specific error cases
     if (err.message.includes("API key") || err.message.includes("username")) {

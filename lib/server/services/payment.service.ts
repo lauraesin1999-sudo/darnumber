@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/server/prisma";
 import { RedisService } from "@/lib/server/services/redis.service";
+import { logger } from "@/lib/logger";
 
 const redis = new RedisService();
 
@@ -18,7 +19,7 @@ export class PaymentService {
     });
     if (!user) throw new Error("User not found");
 
-    console.log(
+    logger.info(
       "[Payments][Initialize]",
       "userId=",
       userId,
@@ -42,7 +43,7 @@ export class PaymentService {
         .toString(36)
         .slice(2, 8)}`;
       const initUrl = `https://api-checkout.etegram.com/api/transaction/initialize/${projectId}`;
-      console.log(
+      logger.info(
         "[Payments][Etegram][Init]",
         "ref=",
         reference,
@@ -97,7 +98,7 @@ export class PaymentService {
           paymentDetails: { accessCode, authorizationUrl: authUrl },
         },
       });
-      console.log(
+      logger.info(
         "[Payments][Etegram][Txn] Created pending deposit",
         "ref=",
         ref,
@@ -117,7 +118,7 @@ export class PaymentService {
       const reference = `PST-${Date.now()}-${Math.random()
         .toString(36)
         .slice(2, 8)}`;
-      console.log(
+      logger.info(
         "[Payments][Paystack][Init]",
         "ref=",
         reference,
@@ -174,7 +175,7 @@ export class PaymentService {
           paymentDetails: { authorizationUrl: authUrl },
         },
       });
-      console.log(
+      logger.info(
         "[Payments][Paystack][Txn] Created pending deposit",
         "ref=",
         ref,
@@ -198,7 +199,7 @@ export class PaymentService {
       const reference = `FLW-${Date.now()}-${Math.random()
         .toString(36)
         .slice(2, 8)}`;
-      console.log(
+      logger.info(
         "[Payments][Flutterwave][Init]",
         "ref=",
         reference,
@@ -259,7 +260,7 @@ export class PaymentService {
           paymentDetails: { link },
         },
       });
-      console.log(
+      logger.info(
         "[Payments][Flutterwave][Txn] Created pending deposit",
         "ref=",
         reference,
@@ -276,7 +277,7 @@ export class PaymentService {
     provider: "etegram" | "paystack" | "flutterwave";
   }) {
     const { userId, reference, provider } = input;
-    console.log(
+    logger.info(
       "[Payments][Verify]",
       "userId=",
       userId,
@@ -302,7 +303,7 @@ export class PaymentService {
           "Paystack secret not configured. Please set PAYSTACK_SECRET_KEY in .env",
         );
       const verifyUrl = `https://api.paystack.co/transaction/verify/${reference}`;
-      console.log("[Payments][Verify][Paystack] verifyUrl=", verifyUrl);
+      logger.info("[Payments][Verify][Paystack] verifyUrl=", verifyUrl);
       const res = await fetch(verifyUrl, {
         method: "GET",
         headers: {
@@ -316,9 +317,9 @@ export class PaymentService {
         try {
           const errJson = JSON.parse(errText);
           errorMsg = errJson?.message || errorMsg;
-          console.error("[Payments][Verify][Paystack] API Error:", errJson);
+          logger.error("[Payments][Verify][Paystack] API Error:", errJson);
         } catch {
-          console.error("[Payments][Verify][Paystack] Error:", errText);
+          logger.error("[Payments][Verify][Paystack] Error:", errText);
         }
         throw new Error(errorMsg);
       }
@@ -326,7 +327,7 @@ export class PaymentService {
       const status = data?.data?.status?.toLowerCase();
       const paid = status === "success";
       const amountPaid = Number(data?.data?.amount ?? 0) / 100;
-      console.log(
+      logger.info(
         "[Payments][Verify][Paystack]",
         "status=",
         status,
@@ -367,7 +368,7 @@ export class PaymentService {
           },
         });
       });
-      console.log(
+      logger.info(
         "[Payments][Verify][Paystack] Deposit completed",
         "userId=",
         userId,
@@ -393,7 +394,7 @@ export class PaymentService {
           "Flutterwave secret not configured. Please set FLUTTERWAVE_SECRET_KEY in .env",
         );
       const verifyUrl = `https://api.flutterwave.com/v3/transactions/verify_by_reference?tx_ref=${reference}`;
-      console.log("[Payments][Verify][Flutterwave] verifyUrl=", verifyUrl);
+      logger.info("[Payments][Verify][Flutterwave] verifyUrl=", verifyUrl);
       const res = await fetch(verifyUrl, {
         method: "GET",
         headers: {
@@ -411,7 +412,7 @@ export class PaymentService {
       const status = (data?.data?.status || "").toString().toLowerCase();
       const paid = status === "successful" || status === "success";
       const amountPaid = Number(data?.data?.amount ?? txn.amount);
-      console.log(
+      logger.info(
         "[Payments][Verify][Flutterwave]",
         "status=",
         status,
@@ -452,7 +453,7 @@ export class PaymentService {
           },
         });
       });
-      console.log(
+      logger.info(
         "[Payments][Verify][Flutterwave] Deposit completed",
         "userId=",
         userId,
@@ -491,7 +492,7 @@ export class PaymentService {
     throw new Error("Payment provider not implemented");
   }
   async requestWithdrawal(userId: string, amount: number, bankDetails: any) {
-    console.log(
+    logger.info(
       "[Payments][Withdrawal] Request submitted",
       "userId=",
       userId,
@@ -541,7 +542,7 @@ export class PaymentService {
     amount: number,
     meta: Record<string, unknown>,
   ) {
-    console.log(
+    logger.info(
       "[Payments][Deposit] Completing",
       "userId=",
       userId,
@@ -582,7 +583,7 @@ export class PaymentService {
     });
     // Fire-and-forget: cache bust is best-effort — the DB is already committed
     redis.invalidateUserBalance(userId).catch(() => {});
-    console.log(
+    logger.info(
       "[Payments][Deposit] Completed",
       "userId=",
       userId,
@@ -594,7 +595,7 @@ export class PaymentService {
   }
 
   async handleEtegramWebhook(payload: any) {
-    console.log("[Webhook][Etegram] Received", {
+    logger.info("[Webhook][Etegram] Received", {
       reference: payload?.reference || payload?.data?.reference,
       status: payload?.status || payload?.data?.status,
       amount: payload?.amount ?? payload?.data?.amount,
@@ -608,17 +609,17 @@ export class PaymentService {
     const amount = Number(payload?.amount ?? payload?.data?.amount ?? 0);
 
     if (!reference) {
-      console.log("[Webhook][Etegram] No reference found, skipping");
+      logger.info("[Webhook][Etegram] No reference found, skipping");
       return { ok: false };
     }
 
     // Only process successful payments
     if (!(status === "successful" || status === "success")) {
-      console.log("[Webhook][Etegram] Payment not successful, status:", status);
+      logger.info("[Webhook][Etegram] Payment not successful, status:", status);
       return { ok: false };
     }
 
-    console.log(
+    logger.info(
       "[Webhook][Etegram] Processing successful payment:",
       "ref=",
       reference,
@@ -634,7 +635,7 @@ export class PaymentService {
     if (existingTxn) {
       // Transaction exists - check if it's pending
       if (existingTxn.status === "PENDING") {
-        console.log(
+        logger.info(
           "[Webhook][Etegram] Found pending transaction, completing it:",
           existingTxn.id,
         );
@@ -642,12 +643,12 @@ export class PaymentService {
           provider: "etegram",
           reference,
         });
-        console.log(
+        logger.info(
           "[Webhook][Etegram] Deposit completed for user:",
           existingTxn.userId,
         );
       } else {
-        console.log(
+        logger.info(
           "[Webhook][Etegram] Transaction already processed with status:",
           existingTxn.status,
         );
@@ -660,7 +661,7 @@ export class PaymentService {
       payload?.data?.customer?.email || payload?.customer?.email || null;
 
     if (!customerEmail) {
-      console.log(
+      logger.info(
         "[Webhook][Etegram] No existing transaction and no customer email; skipping",
       );
       return { ok: true };
@@ -672,7 +673,7 @@ export class PaymentService {
     });
 
     if (!user) {
-      console.log(
+      logger.info(
         "[Webhook][Etegram] User not found for email:",
         customerEmail,
       );
@@ -683,7 +684,7 @@ export class PaymentService {
       .toString(36)
       .slice(2, 9)}`;
 
-    console.log(
+    logger.info(
       "[Webhook][Etegram] Creating new transaction for user:",
       user.id,
     );
@@ -711,7 +712,7 @@ export class PaymentService {
       type: "webhook",
     });
 
-    console.log(
+    logger.info(
       "[Webhook][Etegram] New deposit completed",
       "userId=",
       user.id,
@@ -723,7 +724,7 @@ export class PaymentService {
   }
 
   async handlePaystackWebhook(rawBody: string, signature: string | null) {
-    console.log(
+    logger.info(
       "[Webhook][Paystack] Received",
       "signaturePresent=",
       !!signature,
@@ -733,7 +734,7 @@ export class PaymentService {
     // Signature validation intentionally disabled.
 
     const event = JSON.parse(rawBody);
-    console.log(
+    logger.info(
       "[Paystack Webhook] Event:",
       event?.event,
       "Data:",
@@ -748,11 +749,11 @@ export class PaymentService {
       const channel = event?.data?.channel;
 
       if (!ref) {
-        console.log("[Paystack Webhook] No reference found, skipping");
+        logger.info("[Paystack Webhook] No reference found, skipping");
         return { ok: true, status: 200 };
       }
 
-      console.log(
+      logger.info(
         "[Paystack Webhook] Processing charge.success:",
         "ref=",
         ref,
@@ -772,7 +773,7 @@ export class PaymentService {
       if (existingTxn) {
         // Transaction exists - check if it's pending
         if (existingTxn.status === "PENDING") {
-          console.log(
+          logger.info(
             "[Paystack Webhook] Found pending transaction, completing it:",
             existingTxn.id,
           );
@@ -786,12 +787,12 @@ export class PaymentService {
               channel: channel,
             },
           );
-          console.log(
+          logger.info(
             "[Paystack Webhook] Deposit completed for user:",
             existingTxn.userId,
           );
         } else {
-          console.log(
+          logger.info(
             "[Paystack Webhook] Transaction already processed with status:",
             existingTxn.status,
           );
@@ -801,7 +802,7 @@ export class PaymentService {
 
       // Transaction doesn't exist - create new one if we have customer email
       if (customerEmail) {
-        console.log(
+        logger.info(
           "[Paystack Webhook] No existing transaction, creating new one for:",
           customerEmail,
         );
@@ -815,7 +816,7 @@ export class PaymentService {
             .toString(36)
             .slice(2, 9)}`;
 
-          console.log(
+          logger.info(
             "[Paystack Webhook] Creating new transaction for user:",
             user.id,
           );
@@ -851,20 +852,20 @@ export class PaymentService {
             channel,
           });
 
-          console.log(
+          logger.info(
             "[Paystack Webhook] New deposit completed for user:",
             user.id,
             "txn:",
             newTxn.id,
           );
         } else {
-          console.log(
+          logger.info(
             "[Paystack Webhook] User not found for email:",
             customerEmail,
           );
         }
       } else {
-        console.log(
+        logger.info(
           "[Paystack Webhook] No customer email found, cannot create transaction",
         );
       }
@@ -874,7 +875,7 @@ export class PaymentService {
   }
 
   async handleFlutterwaveWebhook(rawBody: string, signature: string | null) {
-    console.log(
+    logger.info(
       "[Webhook][Flutterwave] Received",
       "signaturePresent=",
       !!signature,
@@ -884,14 +885,14 @@ export class PaymentService {
     // Signature validation intentionally disabled.
     const event = JSON.parse(rawBody);
     const status = (event?.data?.status || "").toString().toLowerCase();
-    console.log("[Webhook][Flutterwave] Event status=", status);
+    logger.info("[Webhook][Flutterwave] Event status=", status);
 
     if (status === "successful" || status === "success") {
       const ref = event?.data?.tx_ref;
       const amount = Number(event?.data?.amount ?? 0);
       const customerEmail = event?.data?.customer?.email || null;
 
-      console.log(
+      logger.info(
         "[Webhook][Flutterwave] Successful payment",
         "ref=",
         ref,
@@ -902,7 +903,7 @@ export class PaymentService {
       );
 
       if (!ref) {
-        console.log("[Webhook][Flutterwave] No reference found, skipping");
+        logger.info("[Webhook][Flutterwave] No reference found, skipping");
         return { ok: true, status: 200 };
       }
 
@@ -914,7 +915,7 @@ export class PaymentService {
       if (existingTxn) {
         // Transaction exists - check if it's pending
         if (existingTxn.status === "PENDING") {
-          console.log(
+          logger.info(
             "[Webhook][Flutterwave] Found pending transaction, completing it:",
             existingTxn.id,
           );
@@ -927,12 +928,12 @@ export class PaymentService {
               reference: ref,
             },
           );
-          console.log(
+          logger.info(
             "[Webhook][Flutterwave] Deposit completed for user:",
             existingTxn.userId,
           );
         } else {
-          console.log(
+          logger.info(
             "[Webhook][Flutterwave] Transaction already processed with status:",
             existingTxn.status,
           );
@@ -942,7 +943,7 @@ export class PaymentService {
 
       // Transaction doesn't exist - create new one if we have customer email
       if (!customerEmail) {
-        console.log(
+        logger.info(
           "[Webhook][Flutterwave] No existing transaction and no customer email; skipping",
         );
         return { ok: true, status: 200 };
@@ -954,7 +955,7 @@ export class PaymentService {
       });
 
       if (!user) {
-        console.log(
+        logger.info(
           "[Webhook][Flutterwave] User not found for email:",
           customerEmail,
         );
@@ -965,7 +966,7 @@ export class PaymentService {
         .toString(36)
         .slice(2, 9)}`;
 
-      console.log(
+      logger.info(
         "[Webhook][Flutterwave] Creating new transaction for user:",
         user.id,
       );
@@ -993,7 +994,7 @@ export class PaymentService {
         type: "webhook",
       });
 
-      console.log(
+      logger.info(
         "[Webhook][Flutterwave] New deposit completed",
         "userId=",
         user.id,
@@ -1017,7 +1018,7 @@ export class PaymentService {
       throw new Error(
         "User missing email. A Paystack customer requires an email address.",
       );
-    console.log(
+    logger.info(
       "[DVA][Service] user=",
       userId,
       "preferredBank=",
@@ -1047,7 +1048,7 @@ export class PaymentService {
             )
           : undefined;
         if (match?.customer_code) customerCode = match.customer_code;
-        console.log("[DVA][Service] matchedCustomer=", match?.customer_code);
+        logger.info("[DVA][Service] matchedCustomer=", match?.customer_code);
       }
     } catch {}
 
@@ -1073,7 +1074,7 @@ export class PaymentService {
       }
       const cust = (await custRes.json()) as any;
       customerCode = cust?.data?.customer_code;
-      console.log("[DVA][Service] createdCustomerCode=", customerCode);
+      logger.info("[DVA][Service] createdCustomerCode=", customerCode);
       if (!customerCode) {
         throw new Error(
           "Failed to create Paystack customer: missing customer_code",
@@ -1107,7 +1108,7 @@ export class PaymentService {
     );
     if (!assignRes.ok) {
       const errText = await assignRes.text().catch(() => "");
-      console.error(
+      logger.error(
         "[DVA][Service][Assign][ERROR] code=",
         customerCode,
         "resp=",
@@ -1121,7 +1122,7 @@ export class PaymentService {
     const bankName = assign?.data?.bank?.name;
     const accountNumber = assign?.data?.account_number;
     const accountName = assign?.data?.account_name;
-    console.log("[DVA][Service] assigned=", {
+    logger.info("[DVA][Service] assigned=", {
       bankName,
       accountNumber,
       accountName,

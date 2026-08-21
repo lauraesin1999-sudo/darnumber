@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/server/prisma";
+import { logger } from "@/lib/logger";
 
 // Parse SQL INSERT statements from the uploaded file
 function parseInsertStatements(sqlContent: string) {
-  console.log("🔍 Starting SQL parsing...");
-  console.log(`📄 SQL content length: ${sqlContent.length} characters`);
+  logger.info("🔍 Starting SQL parsing...");
+  logger.info(`📄 SQL content length: ${sqlContent.length} characters`);
 
   const users: any[] = [];
 
@@ -13,14 +14,14 @@ function parseInsertStatements(sqlContent: string) {
     /INSERT INTO `users`[^(]*\([^)]+\)\s+VALUES\s*([\s\S]+?);/g;
   const matches = Array.from(sqlContent.matchAll(insertRegex));
 
-  console.log(`✅ Found ${matches.length} INSERT statements`);
+  logger.info(`✅ Found ${matches.length} INSERT statements`);
 
   for (const match of matches) {
     const valuesSection = match[1];
 
     // Split by ),( to get individual user records
     const userRecords = valuesSection.split(/\),\s*\(/);
-    console.log(
+    logger.info(
       `📦 Processing ${userRecords.length} user records from this INSERT statement`
     );
 
@@ -89,7 +90,7 @@ function parseInsertStatements(sqlContent: string) {
 
         // Skip if essential fields are missing
         if (!email || !userName) {
-          console.log(
+          logger.info(
             `⚠️ Skipping record - missing essential fields (email: ${email}, userName: ${userName})`
           );
           continue;
@@ -114,7 +115,7 @@ function parseInsertStatements(sqlContent: string) {
           role: "USER",
         };
 
-        console.log(
+        logger.info(
           `👤 Parsed user: ${email} (${userName}) - Balance: ${userData.balance} ${userData.currency}`
         );
         users.push(userData);
@@ -122,47 +123,47 @@ function parseInsertStatements(sqlContent: string) {
     }
   }
 
-  console.log(`✅ Parsing complete. Total valid users: ${users.length}`);
+  logger.info(`✅ Parsing complete. Total valid users: ${users.length}`);
   return users;
 }
 
 export async function POST(request: NextRequest) {
-  console.log("\n🚀 ========== MIGRATION REQUEST STARTED ==========");
+  logger.info("\n🚀 ========== MIGRATION REQUEST STARTED ==========");
   const startTime = Date.now();
 
   try {
     // Get the uploaded file
-    console.log("📥 Receiving file upload...");
+    logger.info("📥 Receiving file upload...");
     const formData = await request.formData();
     const file = formData.get("file") as File;
 
     if (!file) {
-      console.log("❌ No file uploaded");
+      logger.info("❌ No file uploaded");
       return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
     }
 
-    console.log(
+    logger.info(
       `📁 File received: ${file.name} (${file.size} bytes, ${file.type})`
     );
 
     // Read the file content
-    console.log("📖 Reading file content...");
+    logger.info("📖 Reading file content...");
     const content = await file.text();
-    console.log(`✅ File content read successfully`);
+    logger.info(`✅ File content read successfully`);
 
     // Parse the SQL file
-    console.log("\n🔧 Starting SQL parsing...");
+    logger.info("\n🔧 Starting SQL parsing...");
     const users = parseInsertStatements(content);
 
     if (users.length === 0) {
-      console.log("❌ No valid user data found in the file");
+      logger.info("❌ No valid user data found in the file");
       return NextResponse.json(
         { error: "No valid user data found in the file" },
         { status: 400 }
       );
     }
 
-    console.log(
+    logger.info(
       `\n💾 Starting database migration for ${users.length} users...`
     );
 
@@ -173,7 +174,7 @@ export async function POST(request: NextRequest) {
 
     for (const userData of users) {
       try {
-        console.log(`\n🔍 Checking user: ${userData.email}`);
+        logger.info(`\n🔍 Checking user: ${userData.email}`);
 
         // Check if user already exists
         const existingUser = await prisma.user.findUnique({
@@ -181,7 +182,7 @@ export async function POST(request: NextRequest) {
         });
 
         if (existingUser) {
-          console.log(`⏭️ User already exists, skipping: ${userData.email}`);
+          logger.info(`⏭️ User already exists, skipping: ${userData.email}`);
           skippedCount++;
           continue;
         }
@@ -192,7 +193,7 @@ export async function POST(request: NextRequest) {
           .substring(2, 7)
           .toUpperCase()}`;
 
-        console.log(
+        logger.info(
           `➕ Creating user: ${userData.email} with referral code: ${referralCode}`
         );
 
@@ -204,10 +205,10 @@ export async function POST(request: NextRequest) {
           },
         });
 
-        console.log(`✅ Successfully created user: ${userData.email}`);
+        logger.info(`✅ Successfully created user: ${userData.email}`);
         migratedCount++;
       } catch (error) {
-        console.error(`❌ Error migrating user ${userData.email}:`, error);
+        logger.error(`❌ Error migrating user ${userData.email}:`, error);
         errors.push(
           `Failed to migrate ${userData.email}: ${
             error instanceof Error ? error.message : "Unknown error"
@@ -216,14 +217,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    console.log("\n📊 ========== MIGRATION SUMMARY ==========");
-    console.log(`✅ Successfully migrated: ${migratedCount} users`);
-    console.log(`⏭️ Skipped (already exist): ${skippedCount} users`);
-    console.log(`❌ Failed: ${errors.length} users`);
-    console.log(
+    logger.info("\n📊 ========== MIGRATION SUMMARY ==========");
+    logger.info(`✅ Successfully migrated: ${migratedCount} users`);
+    logger.info(`⏭️ Skipped (already exist): ${skippedCount} users`);
+    logger.info(`❌ Failed: ${errors.length} users`);
+    logger.info(
       `⏱️ Total time: ${((Date.now() - startTime) / 1000).toFixed(2)}s`
     );
-    console.log("========================================\n");
+    logger.info("========================================\n");
 
     const response = {
       success: true,
@@ -234,12 +235,12 @@ export async function POST(request: NextRequest) {
       errors: errors.length > 0 ? errors : undefined,
     };
 
-    console.log("🎉 Migration completed successfully!");
+    logger.info("🎉 Migration completed successfully!");
     return NextResponse.json(response);
   } catch (error) {
-    console.error("\n💥 ========== MIGRATION ERROR ==========");
-    console.error("Migration failed with error:", error);
-    console.error("======================================\n");
+    logger.error("\n💥 ========== MIGRATION ERROR ==========");
+    logger.error("Migration failed with error:", error);
+    logger.error("======================================\n");
 
     return NextResponse.json(
       {
@@ -288,7 +289,7 @@ export async function POST(request: NextRequest) {
 
 // // Parse SQL INSERT statements (keep your existing function but optimize)
 // function parseInsertStatements(sqlContent: string): UserData[] {
-//   console.log("🔍 Starting SQL parsing...");
+//   logger.info("🔍 Starting SQL parsing...");
 //   const users: UserData[] = [];
 //   let totalRecords = 0;
 //   let skippedNoPassword = 0;
@@ -301,7 +302,7 @@ export async function POST(request: NextRequest) {
 //     /INSERT INTO `users`[^(]*\([^)]+\)\s+VALUES\s*([\s\S]+?);/g;
 //   const matches = Array.from(sqlContent.matchAll(insertRegex));
 
-//   console.log(`✅ Found ${matches.length} INSERT statements`);
+//   logger.info(`✅ Found ${matches.length} INSERT statements`);
 
 //   for (const match of matches) {
 //     const valuesSection = match[1];
@@ -358,7 +359,7 @@ export async function POST(request: NextRequest) {
 //       }
 
 //       if (values.length < 19) {
-//         console.log(
+//         logger.info(
 //           `⚠️ Record has insufficient values (${
 //             values.length
 //           }/19), padding with empty strings: ${JSON.stringify(values)}`
@@ -374,7 +375,7 @@ export async function POST(request: NextRequest) {
 //       const password = values[7]?.trim() || "";
 
 //       if (!password) {
-//         console.log(
+//         logger.info(
 //           `⚠️ Skipping record - no password: username="${userName}", email="${email}"`
 //         );
 //         skippedNoPassword++;
@@ -382,7 +383,7 @@ export async function POST(request: NextRequest) {
 //       }
 
 //       if (!userName && !email) {
-//         console.log(
+//         logger.info(
 //           `⚠️ Skipping record - no username or email: ${JSON.stringify(
 //             values.slice(0, 5)
 //           )}`
@@ -395,7 +396,7 @@ export async function POST(request: NextRequest) {
 //         userName = `user_${Date.now()}_${Math.random()
 //           .toString(36)
 //           .substring(2, 8)}`;
-//         console.log(
+//         logger.info(
 //           `🤖 Auto-generated username: ${userName} for email: ${email}`
 //         );
 //         autoGeneratedUsernames++;
@@ -403,7 +404,7 @@ export async function POST(request: NextRequest) {
 
 //       if (!email) {
 //         email = `${userName}@darnumber.com`;
-//         console.log(
+//         logger.info(
 //           `📧 Auto-generated email: ${email} for username: ${userName}`
 //         );
 //         autoGeneratedEmails++;
@@ -428,28 +429,28 @@ export async function POST(request: NextRequest) {
 //         role: UserRole.USER,
 //       };
 
-//       console.log(
+//       logger.info(
 //         `👤 Parsed user: ${email} (${userName}) - Balance: ${userData.balance} ${userData.currency}`
 //       );
 //       users.push(userData);
 //     }
 //   }
 
-//   console.log(`✅ Parsing complete.`);
-//   console.log(`📊 Total records processed: ${totalRecords}`);
-//   console.log(`✅ Valid users parsed: ${users.length}`);
-//   console.log(`⚠️ Skipped - no password: ${skippedNoPassword}`);
-//   console.log(`⚠️ Skipped - no identifier: ${skippedNoIdentifier}`);
-//   console.log(`🤖 Auto-generated usernames: ${autoGeneratedUsernames}`);
-//   console.log(`📧 Auto-generated emails: ${autoGeneratedEmails}`);
-//   console.log(`🔧 Padded records (insufficient fields): ${paddedRecords}`);
+//   logger.info(`✅ Parsing complete.`);
+//   logger.info(`📊 Total records processed: ${totalRecords}`);
+//   logger.info(`✅ Valid users parsed: ${users.length}`);
+//   logger.info(`⚠️ Skipped - no password: ${skippedNoPassword}`);
+//   logger.info(`⚠️ Skipped - no identifier: ${skippedNoIdentifier}`);
+//   logger.info(`🤖 Auto-generated usernames: ${autoGeneratedUsernames}`);
+//   logger.info(`📧 Auto-generated emails: ${autoGeneratedEmails}`);
+//   logger.info(`🔧 Padded records (insufficient fields): ${paddedRecords}`);
 
 //   return users;
 // }
 
 // // Batch insert with conflict handling
 // async function migrateBatch(users: UserData[], startIndex: number) {
-//   console.log(
+//   logger.info(
 //     `\n🔄 Processing batch starting at index ${startIndex} with ${users.length} users`
 //   );
 
@@ -459,7 +460,7 @@ export async function POST(request: NextRequest) {
 //   }));
 
 //   try {
-//     console.log(
+//     logger.info(
 //       `💾 Attempting batch insert for ${usersWithRefCodes.length} users...`
 //     );
 //     // Use createMany with skipDuplicates for much faster insertion
@@ -468,7 +469,7 @@ export async function POST(request: NextRequest) {
 //       skipDuplicates: true, // Skip existing emails automatically
 //     });
 
-//     console.log(
+//     logger.info(
 //       `✅ Batch insert successful: ${result.count} inserted, ${
 //         users.length - result.count
 //       } skipped (duplicates)`
@@ -479,8 +480,8 @@ export async function POST(request: NextRequest) {
 //       skipped: users.length - result.count,
 //     };
 //   } catch (error) {
-//     console.error(`❌ Batch insert failed:`, error);
-//     console.log(`🔄 Falling back to individual inserts...`);
+//     logger.error(`❌ Batch insert failed:`, error);
+//     logger.info(`🔄 Falling back to individual inserts...`);
 
 //     // Fallback: Try individual inserts for this batch
 //     let migratedCount = 0;
@@ -488,9 +489,9 @@ export async function POST(request: NextRequest) {
 
 //     for (const user of usersWithRefCodes) {
 //       try {
-//         console.log(`🔍 Checking/creating user: ${user.email}`);
+//         logger.info(`🔍 Checking/creating user: ${user.email}`);
 //         await prisma.user.create({ data: user });
-//         console.log(`✅ Created user: ${user.email}`);
+//         logger.info(`✅ Created user: ${user.email}`);
 //         migratedCount++;
 //       } catch (err) {
 //         // Skip if duplicate
@@ -499,15 +500,15 @@ export async function POST(request: NextRequest) {
 //           "code" in err &&
 //           (err as { code: string }).code === "P2002"
 //         ) {
-//           console.log(`⏭️ Skipped duplicate: ${user.email}`);
+//           logger.info(`⏭️ Skipped duplicate: ${user.email}`);
 //           skippedCount++;
 //         } else {
-//           console.error(`❌ Failed to migrate ${user.email}:`, err);
+//           logger.error(`❌ Failed to migrate ${user.email}:`, err);
 //         }
 //       }
 //     }
 
-//     console.log(
+//     logger.info(
 //       `🔄 Fallback complete: ${migratedCount} inserted, ${skippedCount} skipped`
 //     );
 //     return {
@@ -519,7 +520,7 @@ export async function POST(request: NextRequest) {
 // }
 
 // export async function POST(request: NextRequest) {
-//   console.log("\n🚀 ========== MIGRATION REQUEST STARTED ==========");
+//   logger.info("\n🚀 ========== MIGRATION REQUEST STARTED ==========");
 //   const startTime = Date.now();
 
 //   try {
@@ -532,7 +533,7 @@ export async function POST(request: NextRequest) {
 //       return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
 //     }
 
-//     console.log(
+//     logger.info(
 //       `📁 File received: ${file.name} (Batch: ${batchNumber}, Offset: ${offset})`
 //     );
 
@@ -550,7 +551,7 @@ export async function POST(request: NextRequest) {
 //     const usersToProcess = allUsers.slice(offset, offset + BATCH_SIZE);
 //     const hasMore = offset + BATCH_SIZE < allUsers.length;
 
-//     console.log(
+//     logger.info(
 //       `💾 Processing batch ${batchNumber}: ${
 //         usersToProcess.length
 //       } users (${offset} to ${offset + usersToProcess.length})`
@@ -561,18 +562,18 @@ export async function POST(request: NextRequest) {
 
 //     const elapsedTime = (Date.now() - startTime) / 1000;
 
-//     console.log(`\n📊 Batch ${batchNumber} Summary:`);
-//     console.log(`✅ Migrated: ${result.count} users`);
-//     console.log(`⏭️ Skipped: ${result.skipped} users`);
-//     console.log(`⏱️ Time: ${elapsedTime.toFixed(2)}s`);
+//     logger.info(`\n📊 Batch ${batchNumber} Summary:`);
+//     logger.info(`✅ Migrated: ${result.count} users`);
+//     logger.info(`⏭️ Skipped: ${result.skipped} users`);
+//     logger.info(`⏱️ Time: ${elapsedTime.toFixed(2)}s`);
 
 //     if (!hasMore) {
-//       console.log(`\n🎉 ========== MIGRATION COMPLETED ==========`);
-//       console.log(`📊 Final Summary:`);
-//       console.log(`✅ Total users in file: ${allUsers.length}`);
-//       console.log(`✅ Total processed: ${offset + usersToProcess.length}`);
-//       console.log(`🎯 Migration successful!`);
-//       console.log(`==========================================\n`);
+//       logger.info(`\n🎉 ========== MIGRATION COMPLETED ==========`);
+//       logger.info(`📊 Final Summary:`);
+//       logger.info(`✅ Total users in file: ${allUsers.length}`);
+//       logger.info(`✅ Total processed: ${offset + usersToProcess.length}`);
+//       logger.info(`🎯 Migration successful!`);
+//       logger.info(`==========================================\n`);
 //     }
 
 //     return NextResponse.json({
@@ -593,7 +594,7 @@ export async function POST(request: NextRequest) {
 //       ).toFixed(1),
 //     });
 //   } catch (error) {
-//     console.error("\n💥 Migration Error:", error);
+//     logger.error("\n💥 Migration Error:", error);
 //     return NextResponse.json(
 //       {
 //         error: "Migration failed",

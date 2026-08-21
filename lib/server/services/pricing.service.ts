@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/server/prisma";
+import { logger } from "@/lib/logger";
 
 /**
  * PricingService - Applies admin-configured pricing rules to calculate final prices.
@@ -77,7 +78,7 @@ function computeProfitUsd(
   if (profitCurrency === "NGN") {
     // Convert NGN fixed markup → USD so final stays in USD
     if (!usdToNgnRate || usdToNgnRate <= 0) {
-      console.warn(
+      logger.warn(
         "[PricingService] Invalid usdToNgnRate for NGN fixed markup; treating value as USD",
       );
       return profitValue;
@@ -181,7 +182,7 @@ export class PricingService {
 
       const currencyNote =
         rule.profitType === "FIXED" ? ` ${rule.profitCurrency}` : "";
-      console.log(
+      logger.info(
         `[PricingService] Rule applied: ${rule.id} (${
           rule.serviceCode || "*"
         }/${rule.country || "*"}) - ${rule.profitType} ${rule.profitValue}${
@@ -190,7 +191,7 @@ export class PricingService {
       );
     } else {
       profit = basePrice * (DEFAULT_MARKUP.profitValue / 100);
-      console.log(
+      logger.info(
         `[PricingService] No rule found, using default ${DEFAULT_MARKUP.profitValue}% markup`,
       );
     }

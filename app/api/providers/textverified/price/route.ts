@@ -3,6 +3,7 @@ import { json, error } from "@/lib/server/utils/response";
 import { TextVerifiedService } from "@/lib/server/services/textverified.service";
 import { ExchangeRateService } from "@/lib/server/services/exchange-rate.service";
 import { PricingService } from "@/lib/server/services/pricing.service";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 
@@ -52,13 +53,13 @@ export async function GET(req: NextRequest) {
         });
         if (result.price > 0) {
           baseUsdPrice = result.price;
-          console.log(
+          logger.info(
             `[panda][Price] Got price for ${serviceName} with capability=${cap}: $${result.price}`,
           );
           break;
         }
       } catch (e) {
-        console.warn(
+        logger.warn(
           `[panda][Price] Pricing failed for ${serviceName} with capability=${cap}: ${(e as Error).message}`,
         );
         continue;
@@ -66,7 +67,7 @@ export async function GET(req: NextRequest) {
     }
 
     if (baseUsdPrice === null || baseUsdPrice <= 0) {
-      console.warn(
+      logger.warn(
         `[panda][Price] No valid price found for ${serviceName} after trying all capabilities`,
       );
       return error(`Price not available for service: ${serviceName}`, 404);
@@ -100,7 +101,7 @@ export async function GET(req: NextRequest) {
         })`
       : "(Default 20% markup)";
 
-    console.log(
+    logger.info(
       `[panda][Price] ${serviceName}: Base $${baseUsdPrice.toFixed(
         2,
       )} + profit $${profitUsd.toFixed(2)} = $${finalUsdPrice.toFixed(
@@ -122,7 +123,7 @@ export async function GET(req: NextRequest) {
     });
   } catch (e) {
     const err = e as Error;
-    console.error(
+    logger.error(
       `[API][panda][Price] Failed to fetch price for ${serviceName}:`,
       err,
     );

@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { json, error } from "@/lib/server/utils/response";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 
@@ -24,7 +25,7 @@ export async function GET(_req: NextRequest) {
     });
     return json({ ok: true, data: { countries: map } });
   } catch (e) {
-    console.error("[Countries] error", e);
+    logger.error("[Countries] error", e);
     return error("Unexpected error", 500);
   }
 }

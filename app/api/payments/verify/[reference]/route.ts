@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { requireAuth } from "@/lib/server/auth";
 import { json, error } from "@/lib/server/utils/response";
 import { PaymentService } from "@/lib/server/services/payment.service";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 
@@ -17,7 +18,7 @@ export async function GET(
     if (!provider) return error("provider required", 400);
     if (!reference) return error("reference required", 400);
 
-    console.log(
+    logger.info(
       "[Route][Verify]",
       "reference=",
       reference,
@@ -38,7 +39,7 @@ export async function GET(
     if (e instanceof Error && e.message === "Unauthorized")
       return error("Unauthorized", 401);
     const msg = e instanceof Error ? e.message : "Unexpected error";
-    console.error("[Route][Verify] Error:", msg);
+    logger.error("[Route][Verify] Error:", msg);
     return error(msg, 400);
   }
 }

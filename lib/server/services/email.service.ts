@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { logger } from "@/lib/logger";
 
 // Email configuration from environment variables
 const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
@@ -9,7 +10,7 @@ const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://darnumber.com";
 // Create Resend client
 const createResendClient = () => {
   if (!RESEND_API_KEY) {
-    console.warn(
+    logger.warn(
       "[EmailService] Resend API key not configured. Emails will be logged to console."
     );
     return null;
@@ -33,11 +34,11 @@ export async function sendEmail(options: SendEmailOptions): Promise<boolean> {
 
   // If no resend client (API key not configured), log to console
   if (!resend) {
-    console.log("\n========== EMAIL (DEV MODE) ==========");
-    console.log(`To: ${options.to}`);
-    console.log(`Subject: ${options.subject}`);
-    console.log(`Body:\n${options.text || options.html}`);
-    console.log("=======================================\n");
+    logger.info("\n========== EMAIL (DEV MODE) ==========");
+    logger.info(`To: ${options.to}`);
+    logger.info(`Subject: ${options.subject}`);
+    logger.info(`Body:\n${options.text || options.html}`);
+    logger.info("=======================================\n");
     return true;
   }
 
@@ -51,14 +52,14 @@ export async function sendEmail(options: SendEmailOptions): Promise<boolean> {
     });
 
     if (error) {
-      console.error("[EmailService] Failed to send email:", error);
+      logger.error("[EmailService] Failed to send email:", error);
       return false;
     }
 
-    console.log(`[EmailService] Email sent successfully to ${options.to}`);
+    logger.info(`[EmailService] Email sent successfully to ${options.to}`);
     return true;
   } catch (error) {
-    console.error("[EmailService] Failed to send email:", error);
+    logger.error("[EmailService] Failed to send email:", error);
     return false;
   }
 }
@@ -206,7 +207,7 @@ export async function sendContactNotificationToAdmin(data: {
   const adminEmail = process.env.ADMIN_EMAIL;
 
   if (!adminEmail) {
-    console.warn(
+    logger.warn(
       "[EmailService] No admin email configured for contact notifications"
     );
     return false;

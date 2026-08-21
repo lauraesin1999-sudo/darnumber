@@ -4,6 +4,7 @@ import { json, error } from "@/lib/server/utils/response";
 import { OrderService } from "@/lib/server/services/order.service";
 import { prisma } from "@/lib/server/prisma";
 import { getRedisService } from "@/lib/server/services/redis.service";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 
@@ -92,20 +93,20 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  console.log("=== POST /api/orders START ===");
+  logger.info("=== POST /api/orders START ===");
   try {
-    console.log("1. Authenticating user...");
+    logger.info("1. Authenticating user...");
     const session = await requireAuth();
-    console.log("2. ✅ User authenticated:", {
+    logger.info("2. ✅ User authenticated:", {
       userId: session.user.id,
       email: session.user.email,
     });
 
-    console.log("3. Parsing request body...");
+    logger.info("3. Parsing request body...");
     const body = await req.json();
     const { serviceCode, country, provider, price } = body || {};
 
-    console.log("4. Request data:", {
+    logger.info("4. Request data:", {
       serviceCode,
       country,
       provider,
@@ -115,18 +116,18 @@ export async function POST(req: NextRequest) {
     });
 
     if (!serviceCode || !country) {
-      console.log("5. ❌ Validation failed - Missing required fields:", {
+      logger.info("5. ❌ Validation failed - Missing required fields:", {
         hasServiceCode: !!serviceCode,
         hasCountry: !!country,
       });
       return error("serviceCode and country are required", 400);
     }
 
-    console.log("5. ✅ Validation passed, creating order...");
-    console.log("   serviceCode:", serviceCode);
-    console.log("   country:", country);
-    console.log("   provider:", provider);
-    console.log("   clientPrice (NGN):", price);
+    logger.info("5. ✅ Validation passed, creating order...");
+    logger.info("   serviceCode:", serviceCode);
+    logger.info("   country:", country);
+    logger.info("   provider:", provider);
+    logger.info("   clientPrice (NGN):", price);
     const service = new OrderService();
     const result = await service.createOrder({
       userId: session.user.id,
@@ -136,8 +137,8 @@ export async function POST(req: NextRequest) {
       preferredProvider: provider,
     });
 
-    console.log("6. ✅ Order created successfully:", result);
-    console.log("=== POST /api/orders END (SUCCESS) ===");
+    logger.info("6. ✅ Order created successfully:", result);
+    logger.info("=== POST /api/orders END (SUCCESS) ===");
 
     // Bust relevant user caches so lists/stats/balance update immediately
     try {
@@ -150,8 +151,8 @@ export async function POST(req: NextRequest) {
 
     return json({ ok: true, data: result });
   } catch (e) {
-    console.error("=== POST /api/orders ERROR ===");
-    console.error("Error details:", {
+    logger.error("=== POST /api/orders ERROR ===");
+    logger.error("Error details:", {
       message: e instanceof Error ? e.message : "Unknown error",
       stack: e instanceof Error ? e.stack : undefined,
       error: e,
@@ -167,10 +168,10 @@ export async function POST(req: NextRequest) {
         ? 503
         : 400;
     if (msg === "Unauthorized") {
-      console.log("Returning 401 Unauthorized");
+      logger.info("Returning 401 Unauthorized");
       return error("Unauthorized", 401);
     }
-    console.log(`Returning ${status} error:`, msg);
+    logger.info(`Returning ${status} error:`, msg);
     return error(msg, status);
   }
 }

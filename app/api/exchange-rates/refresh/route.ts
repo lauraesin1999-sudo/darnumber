@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { requireAuth } from "@/lib/server/auth";
 import { json, error } from "@/lib/server/utils/response";
 import { ExchangeRateService } from "@/lib/server/services/exchange-rate.service";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 
@@ -19,7 +20,7 @@ export async function GET(req: NextRequest) {
       return error("Unauthorized: Admin access required", 403);
     }
 
-    console.log(
+    logger.info(
       `[ExchangeRates] Manual refresh triggered by ${session.user.email}`
     );
 
@@ -31,7 +32,7 @@ export async function GET(req: NextRequest) {
       timestamp: new Date().toISOString(),
     });
   } catch (err) {
-    console.error("[ExchangeRates] Refresh failed:", err);
+    logger.error("[ExchangeRates] Refresh failed:", err);
     return error("Failed to refresh exchange rates", 500);
   }
 }
@@ -56,7 +57,7 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (err) {
-    console.error("[ExchangeRates] Failed to get rates:", err);
+    logger.error("[ExchangeRates] Failed to get rates:", err);
     return error("Failed to get exchange rates", 500);
   }
 }

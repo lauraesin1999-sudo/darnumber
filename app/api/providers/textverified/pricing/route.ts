@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { json, error } from "@/lib/server/utils/response";
 import { TextVerifiedService } from "@/lib/server/services/textverified.service";
 import { requireAuth } from "@/lib/server/auth";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 
@@ -21,7 +22,7 @@ export async function POST(req: NextRequest) {
   try {
     // Authenticate user
     const authResult = await requireAuth();
-    console.log(`[panda][Pricing] ✓ User ${authResult?.user?.email} authenticated`);
+    logger.info(`[panda][Pricing] ✓ User ${authResult?.user?.email} authenticated`);
 
     const body = await req.json();
 
@@ -48,7 +49,7 @@ export async function POST(req: NextRequest) {
       return error("capability must be one of: sms, voice, smsAndVoiceCombo", 400);
     }
 
-    console.log(`[panda][Pricing] Fetching pricing for:`, {
+    logger.info(`[panda][Pricing] Fetching pricing for:`, {
       serviceName,
       areaCode,
       carrier,
@@ -66,7 +67,7 @@ export async function POST(req: NextRequest) {
       capability
     });
 
-    console.log(`[panda][Pricing] ✓ Price for ${pricing.serviceName}: $${pricing.price}`);
+    logger.info(`[panda][Pricing] ✓ Price for ${pricing.serviceName}: $${pricing.price}`);
 
     return json({
       ok: true,
@@ -85,7 +86,7 @@ export async function POST(req: NextRequest) {
 
   } catch (e) {
     const err = e as Error;
-    console.error("[panda][Pricing] Failed to fetch pricing:", err);
+    logger.error("[panda][Pricing] Failed to fetch pricing:", err);
     
     // Handle specific error cases
     if (err.message.includes("API key") || err.message.includes("username")) {

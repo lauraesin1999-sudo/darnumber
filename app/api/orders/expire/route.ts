@@ -3,6 +3,7 @@ import { json, error } from "@/lib/server/utils/response";
 import { prisma } from "@/lib/server/prisma";
 import { OrderService } from "@/lib/server/services/order.service";
 import { requireAuth } from "@/lib/server/auth";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 
@@ -32,7 +33,7 @@ export async function POST(_req: NextRequest) {
         await service.getOrderStatus(o.id);
         success++;
       } catch (e) {
-        console.error("[ExpireSweep] failed for", o.id, e);
+        logger.error("[ExpireSweep] failed for", o.id, e);
       }
     }
     return json({
@@ -40,7 +41,7 @@ export async function POST(_req: NextRequest) {
       data: { checked: overdue.length, expired: success },
     });
   } catch (e) {
-    console.error("[ExpireSweep] error", e);
+    logger.error("[ExpireSweep] error", e);
     return error("Unexpected error", 500);
   }
 }

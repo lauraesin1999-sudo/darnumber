@@ -41,6 +41,7 @@ import {
   RefreshCw,
   Copy,
 } from "lucide-react";
+import { logger } from "@/lib/logger";
 
 export default function AdminUserDetailPage() {
   const router = useRouter();
@@ -78,7 +79,7 @@ export default function AdminUserDetailPage() {
         role: response.data.user?.role || "",
       });
     } catch (error: any) {
-      console.error("Failed to fetch user:", error);
+      logger.error("Failed to fetch user:", error);
       if (error.response?.status === 403) {
         toast.api.unauthorized();
         router.push("/dashboard");

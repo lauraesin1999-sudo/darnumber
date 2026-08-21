@@ -3,6 +3,7 @@ import { PrismaClient as MySQLPrisma } from "@prisma/client-mysql";
 import { PrismaClient as PostgresPrisma } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { createHash } from "crypto";
+import { logger } from "@/lib/logger";
 
 const mysqlPrisma = new MySQLPrisma();
 const postgresPrisma = new PostgresPrisma();
@@ -30,7 +31,7 @@ interface LegacyUser {
 }
 
 async function migrateUsers() {
-  console.log("Starting user migration...");
+  logger.info("Starting user migration...");
 
   try {
     // Fetch all users from MySQL
@@ -38,7 +39,7 @@ async function migrateUsers() {
       SELECT * FROM users WHERE del != '1' OR del IS NULL
     `;
 
-    console.log(`Found ${legacyUsers.length} users to migrate`);
+    logger.info(`Found ${legacyUsers.length} users to migrate`);
 
     let migrated = 0;
     let failed = 0;
@@ -93,11 +94,11 @@ async function migrateUsers() {
         migrated++;
 
         if (migrated % 100 === 0) {
-          console.log(`Migrated ${migrated} users...`);
+          logger.info(`Migrated ${migrated} users...`);
         }
       } catch (error) {
         failed++;
-        console.error(`Failed to migrate user ${legacyUser.id}:`, error);
+        logger.error(`Failed to migrate user ${legacyUser.id}:`, error);
 
         // Log failed migration
         await postgresPrisma.systemLog.create({
@@ -112,17 +113,17 @@ async function migrateUsers() {
       }
     }
 
-    console.log(`\nMigration complete!`);
-    console.log(`✓ Successfully migrated: ${migrated}`);
-    console.log(`✗ Failed: ${failed}`);
+    logger.info(`\nMigration complete!`);
+    logger.info(`✓ Successfully migrated: ${migrated}`);
+    logger.info(`✗ Failed: ${failed}`);
   } catch (error) {
-    console.error("Migration failed:", error);
+    logger.error("Migration failed:", error);
     throw error;
   }
 }
 
 async function seedInitialData() {
-  console.log("\nSeeding initial data...");
+  logger.info("\nSeeding initial data...");
 
   // Create default providers
   const smsManProvider = await postgresPrisma.provider.create({
@@ -155,7 +156,7 @@ async function seedInitialData() {
     },
   });
 
-  console.log("✓ Created providers");
+  logger.info("✓ Created providers");
 
   // Create default pricing rules
   await postgresPrisma.pricingRule.createMany({
@@ -179,7 +180,7 @@ async function seedInitialData() {
     ],
   });
 
-  console.log("✓ Created pricing rules");
+  logger.info("✓ Created pricing rules");
 
   // Create admin user
   const adminPassword = await bcrypt.hash(
@@ -201,7 +202,7 @@ async function seedInitialData() {
     },
   });
 
-  console.log("✓ Created admin user");
+  logger.info("✓ Created admin user");
 
   // Create system config
   await postgresPrisma.systemConfig.createMany({
@@ -224,7 +225,7 @@ async function seedInitialData() {
     ],
   });
 
-  console.log("✓ Created system config");
+  logger.info("✓ Created system config");
 }
 
 // Helper functions
@@ -261,30 +262,30 @@ function generateReferralCode(userName: string): string {
 
 // Verify migration
 async function verifyMigration() {
-  console.log("\nVerifying migration...");
+  logger.info("\nVerifying migration...");
 
   const userCount = await postgresPrisma.user.count();
   const sessionCount = await postgresPrisma.session.count();
   const providerCount = await postgresPrisma.provider.count();
 
-  console.log(`✓ Users: ${userCount}`);
-  console.log(`✓ Sessions: ${sessionCount}`);
-  console.log(`✓ Providers: ${providerCount}`);
+  logger.info(`✓ Users: ${userCount}`);
+  logger.info(`✓ Sessions: ${sessionCount}`);
+  logger.info(`✓ Providers: ${providerCount}`);
 }
 
 // Main execution
 async function main() {
   try {
-    console.log("=== Starting Migration ===\n");
+    logger.info("=== Starting Migration ===\n");
 
     await migrateUsers();
     await seedInitialData();
     await verifyMigration();
 
-    console.log("\n=== Migration Successful ===");
+    logger.info("\n=== Migration Successful ===");
   } catch (error) {
-    console.error("\n=== Migration Failed ===");
-    console.error(error);
+    logger.error("\n=== Migration Failed ===");
+    logger.error(error);
     process.exit(1);
   } finally {
     await mysqlPrisma.$disconnect();

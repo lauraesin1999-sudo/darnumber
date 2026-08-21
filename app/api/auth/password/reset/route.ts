@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/server/prisma";
 import { error, json } from "@/lib/server/utils/response";
 import bcrypt from "bcryptjs";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 
@@ -101,7 +102,7 @@ export async function POST(req: NextRequest) {
         "Password has been reset successfully. You can now login with your new password.",
     });
   } catch (e) {
-    console.error("Password reset error:", e);
+    logger.error("Password reset error:", e);
     return error("Failed to reset password", 500);
   }
 }

@@ -23,6 +23,7 @@ import {
   Filter,
   ArrowLeft,
 } from "lucide-react";
+import { logger } from "@/lib/logger";
 
 interface Transaction {
   id: string;
@@ -102,7 +103,7 @@ function TransactionsContent() {
         ...response.pagination,
       }));
     } catch (error: any) {
-      console.error("Failed to fetch transactions:", error);
+      logger.error("Failed to fetch transactions:", error);
       if (error.response?.status === 401) {
         toast.auth.sessionExpired();
         router.push("/login");

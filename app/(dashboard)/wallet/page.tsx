@@ -7,6 +7,7 @@ import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
+import { logger } from "@/lib/logger";
 
 export default function WalletPage() {
   const router = useRouter();
@@ -63,7 +64,7 @@ export default function WalletPage() {
         }
       }
     } catch (error: any) {
-      console.error("Failed to fetch wallet data:", error);
+      logger.error("Failed to fetch wallet data:", error);
       if (error.response?.status === 401) {
         toast.auth.sessionExpired();
         router.push("/login");

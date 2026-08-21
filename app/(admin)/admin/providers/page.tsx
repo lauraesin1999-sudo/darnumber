@@ -38,6 +38,7 @@ import {
   RotateCcw,
   Link,
 } from "lucide-react";
+import { logger } from "@/lib/logger";
 
 const getHealthColor = (status: string) => {
   const colors: Record<string, string> = {
@@ -89,7 +90,7 @@ export default function AdminProvidersPage() {
       const response = await api.getProviders();
       setProviders(response.data || []);
     } catch (error: any) {
-      console.error("Failed to fetch providers:", error);
+      logger.error("Failed to fetch providers:", error);
       if (error.response?.status === 403) {
         toast.api.unauthorized();
         router.push("/dashboard");

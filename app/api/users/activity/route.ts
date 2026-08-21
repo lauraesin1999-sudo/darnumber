@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { json, error } from "@/lib/server/utils/response";
 import { requireAuth } from "@/lib/server/auth";
 import { prisma } from "@/lib/server/prisma";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 
@@ -33,7 +34,7 @@ export async function GET(req: NextRequest) {
       prisma.activityLog.count({ where: { userId: session.user.id } }),
     ]);
 
-    console.log("[Route][Users][Activity] Fetched successfully", {
+    logger.info("[Route][Users][Activity] Fetched successfully", {
       userId: session.user.id,
       page,
       total,
@@ -52,7 +53,7 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (e) {
-    console.error("[Route][Users][Activity] Error:", e);
+    logger.error("[Route][Users][Activity] Error:", e);
     if (e instanceof Error && e.message === "Unauthorized")
       return error("Unauthorized", 401);
     return error("Unexpected error", 500);

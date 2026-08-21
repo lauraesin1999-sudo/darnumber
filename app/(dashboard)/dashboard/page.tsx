@@ -7,6 +7,7 @@ import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
+import { logger } from "@/lib/logger";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -31,7 +32,7 @@ export default function DashboardPage() {
       setBalance(balanceRes.data.balance);
       setRecentOrders(ordersRes.data);
     } catch (error: any) {
-      console.error("Failed to fetch dashboard data:", error);
+      logger.error("Failed to fetch dashboard data:", error);
 
       // Handle different error cases with appropriate toasts
       if (error.response?.status === 401) {

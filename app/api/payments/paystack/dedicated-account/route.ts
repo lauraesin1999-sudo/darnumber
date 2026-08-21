@@ -3,13 +3,14 @@ import { requireAuth } from "@/lib/server/auth";
 import { json, error } from "@/lib/server/utils/response";
 import { PaymentService } from "@/lib/server/services/payment.service";
 import { prisma } from "@/lib/server/prisma";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 
 export async function GET() {
   try {
     const session = await requireAuth();
-    console.log("[DVA][GET] userId=", session.user.id);
+    logger.info("[DVA][GET] userId=", session.user.id);
     const user = await prisma.user.findUnique({
       where: { id: session.user.id },
       select: { bankName: true, accountNumber: true, bankAccount: true },
@@ -28,7 +29,7 @@ export async function GET() {
       },
     });
   } catch (e) {
-    console.error("[DVA][GET][ERROR]", e);
+    logger.error("[DVA][GET][ERROR]", e);
     if (e instanceof Error && e.message === "Unauthorized")
       return error("Unauthorized", 401);
     const msg = e instanceof Error ? e.message : "Unexpected error";
@@ -41,7 +42,7 @@ export async function POST(req: NextRequest) {
     const session = await requireAuth();
     const body = await req.json().catch(() => ({}));
     const preferredBank = (body?.preferredBank as string | undefined)?.trim();
-    console.log(
+    logger.info(
       "[DVA][POST] userId=",
       session.user.id,
       "preferredBank=",
@@ -56,14 +57,14 @@ export async function POST(req: NextRequest) {
       session.user.id,
       preferredBank
     );
-    console.log("[DVA][POST] assigned=", data);
+    logger.info("[DVA][POST] assigned=", data);
     if ((data as any)?.status === "PENDING") {
       // Inform client that assignment is in progress
       return json({ ok: true, data }, { status: 202 });
     }
     return json({ ok: true, data });
   } catch (e) {
-    console.error("[DVA][POST][ERROR]", e);
+    logger.error("[DVA][POST][ERROR]", e);
     if (e instanceof Error && e.message === "Unauthorized")
       return error("Unauthorized", 401);
     const msg = e instanceof Error ? e.message : "Unexpected error";

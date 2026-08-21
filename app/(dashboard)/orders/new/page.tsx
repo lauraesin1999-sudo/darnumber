@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { logger } from "@/lib/logger";
 // Removed Radix Select in favor of virtualized Dialog lists
 import { Alert } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
@@ -128,7 +129,7 @@ export default function NewOrderPage() {
 
         setCountryNameByCode(map);
       } catch (e) {
-        console.error("[NewOrderPage] Failed to fetch countries list:", e);
+        logger.error("[NewOrderPage] Failed to fetch countries list:", e);
         // Try fallback to static country list
         try {
           const mod = await import("@/lib/constants/countries");
@@ -159,20 +160,20 @@ export default function NewOrderPage() {
       // Only fetch if still using the hardcoded fallback
       if (usdToNgn !== FALLBACK_USD_TO_NGN) return;
       try {
-        console.log("[NewOrderPage] Fetching exchange rate from server API...");
+        logger.info("[NewOrderPage] Fetching exchange rate from server API...");
         const res = await fetch("/api/exchange-rates");
         if (res.ok) {
           const data = await res.json();
           const rate = data?.data?.usdToNgn;
           if (rate && rate > 0) {
-            console.log(
+            logger.info(
               `[NewOrderPage] Exchange rate from API: 1 USD = ₦${rate}`,
             );
             setUsdToNgn(rate);
           }
         }
       } catch (e) {
-        console.warn(
+        logger.warn(
           "[NewOrderPage] Failed to fetch exchange rate fallback:",
           e,
         );
@@ -185,13 +186,13 @@ export default function NewOrderPage() {
 
   const fetchData = async () => {
     try {
-      console.log("[NewOrderPage] ========== FETCHING LIGHTWEIGHT CATALOG ==========");
+      logger.info("[NewOrderPage] ========== FETCHING LIGHTWEIGHT CATALOG ==========");
 
       const fetchCatalogWithRetry = async () => {
         try {
           return await api.getAvailableServices();
         } catch (firstError) {
-          console.warn(
+          logger.warn(
             "[NewOrderPage] Catalog API first attempt failed, retrying once...",
             firstError,
           );
@@ -214,7 +215,7 @@ export default function NewOrderPage() {
         servicesRes = sResult.value;
       } else {
         servicesError = sResult.reason;
-        console.warn("[NewOrderPage] Catalog API failed:", {
+        logger.warn("[NewOrderPage] Catalog API failed:", {
           message: servicesError?.message || String(servicesError),
           status: servicesError?.response?.status,
           data: servicesError?.response?.data,
@@ -225,7 +226,7 @@ export default function NewOrderPage() {
         balanceRes = bResult.value;
         setBalance(balanceRes.data.balance);
       } else {
-        console.warn(
+        logger.warn(
           "[NewOrderPage] Balance API failed:",
           bResult.reason?.message,
         );
@@ -252,13 +253,13 @@ export default function NewOrderPage() {
 
         const apiRate = servicesRes?.data?.exchangeRate?.usdToNgn;
         if (apiRate && typeof apiRate === "number" && apiRate > 0) {
-          console.log(
+          logger.info(
             `[NewOrderPage] Exchange rate from catalog: 1 USD = ₦${apiRate}`,
           );
           setUsdToNgn(apiRate);
         }
 
-        console.log(
+        logger.info(
           `[NewOrderPage] Loaded lightweight catalog: ${services.length} unique services, ${providersFromApi.length} providers`,
         );
 
@@ -284,7 +285,7 @@ export default function NewOrderPage() {
         setSelectedProvider("lion");
       }
     } catch (error: any) {
-      console.error("[NewOrderPage] Unexpected error in fetchData:", error);
+      logger.error("[NewOrderPage] Unexpected error in fetchData:", error);
       setProviders([
         {
           id: "lion",
@@ -403,7 +404,7 @@ export default function NewOrderPage() {
       try {
         setCountriesLoading(true);
         setServiceCountries([]);
-        console.log(
+        logger.info(
           `[NewOrderPage] Loading countries for ${selectedService} / ${selectedProvider}...`,
         );
         const res = await api.getServiceCountries(
@@ -440,13 +441,13 @@ export default function NewOrderPage() {
           },
         );
 
-        console.log(
+        logger.info(
           `[NewOrderPage] Loaded ${countries.length} countries for ${selectedService}`,
         );
         setServiceCountries(countries);
       } catch (e) {
         if (!cancelled) {
-          console.warn("[NewOrderPage] Failed to load countries:", e);
+          logger.warn("[NewOrderPage] Failed to load countries:", e);
           setServiceCountries([]);
           setError(
             "Failed to load countries for this service. Please try again.",
@@ -489,7 +490,7 @@ export default function NewOrderPage() {
         }
       } catch (e) {
         if (!cancelled) {
-          console.warn(
+          logger.warn(
             `[NewOrderPage] Failed to fetch exact price for ${selectedService}:`,
             e,
           );
@@ -510,15 +511,15 @@ export default function NewOrderPage() {
     e.preventDefault();
     setError("");
 
-    console.log("[NewOrderPage] ========== SUBMIT ORDER ==========");
-    console.log("[NewOrderPage] Selected:", {
+    logger.info("[NewOrderPage] ========== SUBMIT ORDER ==========");
+    logger.info("[NewOrderPage] Selected:", {
       service: selectedService,
       country: selectedCountry,
       provider: selectedProvider,
     });
 
     if (!selectedService || !selectedCountry || !selectedProvider) {
-      console.error("[NewOrderPage] Validation failed: missing selection");
+      logger.error("[NewOrderPage] Validation failed: missing selection");
       toast.api.validationError("Please select service, country, and provider");
       setError("Please select service, country, and provider");
       return;
@@ -531,7 +532,7 @@ export default function NewOrderPage() {
     );
 
     if (!service) {
-      console.error("[NewOrderPage] Service not found in catalog for:", {
+      logger.error("[NewOrderPage] Service not found in catalog for:", {
         code: selectedService,
         provider: selectedProvider,
       });
@@ -550,7 +551,7 @@ export default function NewOrderPage() {
     }
 
     if (balance < currentPriceNgn) {
-      console.error("[NewOrderPage] Insufficient balance:", {
+      logger.error("[NewOrderPage] Insufficient balance:", {
         balance,
         required: currentPriceNgn,
         deficit: currentPriceNgn - balance,
@@ -570,7 +571,7 @@ export default function NewOrderPage() {
       const provider = providers.find((p) => p.id === selectedProvider);
       const price = currentPriceNgn;
 
-      console.log("[NewOrderPage] Order price calculation:", {
+      logger.info("[NewOrderPage] Order price calculation:", {
         countryPrice_USD: countryRow?.priceUsd,
         tvExactPriceUsd,
         exchangeRate_USD_NGN: usdToNgn,
@@ -579,7 +580,7 @@ export default function NewOrderPage() {
       });
 
       if (!price || price <= 0) {
-        console.error("[NewOrderPage] Price is 0 or invalid:", price);
+        logger.error("[NewOrderPage] Price is 0 or invalid:", price);
         setError(
           "Could not determine the price for this service. Please try again.",
         );
@@ -602,7 +603,7 @@ export default function NewOrderPage() {
         setError(response.error || "Failed to create order");
       }
     } catch (err: unknown) {
-      console.error("[NewOrderPage] Order creation exception:", err);
+      logger.error("[NewOrderPage] Order creation exception:", err);
       let message = "Failed to create order. Please try again.";
       if (typeof err === "object" && err && "response" in err) {
         const e = err as {

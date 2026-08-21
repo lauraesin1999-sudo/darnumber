@@ -38,6 +38,7 @@ import {
   TrendingUp,
   TrendingDown,
 } from "lucide-react";
+import { logger } from "@/lib/logger";
 
 export default function AdminWalletsPage() {
   const router = useRouter();
@@ -96,7 +97,7 @@ export default function AdminWalletsPage() {
         setStats(response.data.stats);
       }
     } catch (error: any) {
-      console.error("Failed to fetch wallets:", error);
+      logger.error("Failed to fetch wallets:", error);
       if (error.response?.status === 403) {
         toast.api.unauthorized();
         router.push("/dashboard");

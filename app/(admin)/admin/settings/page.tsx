@@ -48,6 +48,7 @@ import {
   Globe,
   Tag,
 } from "lucide-react";
+import { logger } from "@/lib/logger";
 
 export default function AdminSettingsPage() {
   const router = useRouter();
@@ -90,7 +91,7 @@ export default function AdminSettingsPage() {
       const response = await api.getPricingRules();
       setPricingRules(response.data || []);
     } catch (error: any) {
-      console.error("Failed to fetch pricing rules:", error);
+      logger.error("Failed to fetch pricing rules:", error);
       if (error.response?.status === 403) {
         toast.api.unauthorized();
         router.push("/dashboard");
@@ -109,7 +110,7 @@ export default function AdminSettingsPage() {
       const json = await res.json();
       setExchangeRates(json?.data || null);
     } catch (err) {
-      console.error("Failed to fetch exchange rates:", err);
+      logger.error("Failed to fetch exchange rates:", err);
     }
   };
 

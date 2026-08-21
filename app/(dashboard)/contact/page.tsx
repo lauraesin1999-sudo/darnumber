@@ -29,6 +29,7 @@ import {
   Smartphone,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
+import { logger } from "@/lib/logger";
 
 interface ContactForm {
   name: string;
@@ -113,7 +114,7 @@ export default function ContactPage() {
         message: "",
       });
     } catch (error: any) {
-      console.error("Failed to send message:", error);
+      logger.error("Failed to send message:", error);
       toast.error(
         "Failed to send message",
         error.message || "Please try again or contact us directly."

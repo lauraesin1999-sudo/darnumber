@@ -49,6 +49,7 @@ import {
   UserX,
   Shield,
 } from "lucide-react";
+import { logger } from "@/lib/logger";
 
 const USER_STATUSES = [
   { value: "all", label: "All Statuses" },
@@ -117,7 +118,7 @@ export default function AdminUsersPage() {
         ...response.data?.pagination,
       }));
     } catch (error: any) {
-      console.error("Failed to fetch users:", error);
+      logger.error("Failed to fetch users:", error);
       if (error.response?.status === 403) {
         toast.api.unauthorized();
         router.push("/dashboard");
@@ -142,7 +143,7 @@ export default function AdminUsersPage() {
         suspended: suspendedCount.data?.pagination?.total || 0,
       });
     } catch (error) {
-      console.error("Failed to fetch stats:", error);
+      logger.error("Failed to fetch stats:", error);
     }
   };
 

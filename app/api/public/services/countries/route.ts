@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { json, error } from "@/lib/server/utils/response";
 import { getCountriesForService } from "@/lib/server/services/services-catalog.service";
 import { PROVIDERS } from "@/lib/constants/providers";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -53,7 +54,7 @@ export async function GET(req: NextRequest) {
       },
     );
   } catch (e) {
-    console.error("[public/services/countries] error", e);
+    logger.error("[public/services/countries] error", e);
     return error("Failed to load countries for service", 500);
   }
 }

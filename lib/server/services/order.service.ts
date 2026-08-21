@@ -4,6 +4,7 @@ import { RedisService } from "@/lib/server/services/redis.service";
 import { TextVerifiedService } from "./textverified.service";
 import { PricingService } from "./pricing.service";
 import { ExchangeRateService } from "./exchange-rate.service";
+import { logger } from "@/lib/logger";
 
 const redis = new RedisService();
 
@@ -39,7 +40,7 @@ async function fetchWithRetry(
     const res = await fetch(url, options);
     if (res.status === 429 && retries > 0) {
       const retryAfter = parseInt(res.headers.get("Retry-After") || "1");
-      console.warn(
+      logger.warn(
         `[fetchWithRetry] Rate limited. Retrying after ${retryAfter}s...`,
       );
       await delay(retryAfter * 1000);
@@ -51,7 +52,7 @@ async function fetchWithRetry(
       (e.code === "ECONNRESET" || e.message.includes("fetch failed")) &&
       retries > 0
     ) {
-      console.warn(
+      logger.warn(
         `[fetchWithRetry] Network error (${
           e.code || "FETCH_FAILED"
         }). Retrying in ${backoff}ms... (${retries} retries left)`,
@@ -74,28 +75,28 @@ interface CreateOrderInput {
 
 export class OrderService {
   async createOrder(input: CreateOrderInput) {
-    console.log("[OrderService.createOrder] ========== START ==========");
-    console.log("[OrderService.createOrder] Input:", JSON.stringify(input));
+    logger.info("[OrderService.createOrder] ========== START ==========");
+    logger.info("[OrderService.createOrder] Input:", JSON.stringify(input));
     const { userId, serviceCode, country, clientPriceNgn, preferredProvider } = input;
 
     // 1. Validate User
-    console.log("[OrderService.createOrder] Step 1: Validating user...");
+    logger.info("[OrderService.createOrder] Step 1: Validating user...");
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { balance: true, currency: true },
     });
     if (!user) {
-      console.error("[OrderService.createOrder] User not found:", userId);
+      logger.error("[OrderService.createOrder] User not found:", userId);
       throw new Error("User not found");
     }
-    console.log(
+    logger.info(
       "[OrderService.createOrder] User found. Balance:",
       user.balance.toString(),
       user.currency,
     );
 
     // 2. Validate Provider
-    console.log("[OrderService.createOrder] Step 2: Resolving providers for:", {
+    logger.info("[OrderService.createOrder] Step 2: Resolving providers for:", {
       serviceCode,
       country,
       preferredProvider,
@@ -105,12 +106,12 @@ export class OrderService {
       country,
       preferredProvider,
     );
-    console.log(
+    logger.info(
       "[OrderService.createOrder] Available providers:",
       providers.map((p) => `${p.name} (id: ${p.id})`),
     );
     if (!providers.length) {
-      console.error("[OrderService.createOrder] No providers available for:", {
+      logger.error("[OrderService.createOrder] No providers available for:", {
         serviceCode,
         country,
         preferredProvider,
@@ -118,25 +119,25 @@ export class OrderService {
       throw new Error("No providers available for this service and country.");
     }
     const selectedProvider = providers[0];
-    console.log(
+    logger.info(
       "[OrderService.createOrder] Selected provider:",
       selectedProvider,
     );
 
     // 3. Calculate authoritative server-side price
-    console.log("[OrderService.createOrder] Step 3: Calculating server-side price...");
+    logger.info("[OrderService.createOrder] Step 3: Calculating server-side price...");
     const serverPriceNgn = await this.calculateAuthoritativePrice(
       serviceCode,
       country,
       selectedProvider.name,
     );
-    console.log("[OrderService.createOrder] Server price (NGN):", serverPriceNgn);
+    logger.info("[OrderService.createOrder] Server price (NGN):", serverPriceNgn);
 
     // Guard: if the client quoted a price that is more than 10% below the server
     // price, the frontend was working off a stale cache. Reject so the user sees
     // fresh pricing before being charged.
     if (clientPriceNgn !== undefined && clientPriceNgn < serverPriceNgn * 0.90) {
-      console.warn("[OrderService.createOrder] Client price too low vs server price:", {
+      logger.warn("[OrderService.createOrder] Client price too low vs server price:", {
         clientPriceNgn,
         serverPriceNgn,
         diff: `${(((serverPriceNgn - clientPriceNgn) / serverPriceNgn) * 100).toFixed(1)}%`,
@@ -147,26 +148,26 @@ export class OrderService {
     }
 
     // 4. Validate Balance against server price
-    console.log(
+    logger.info(
       "[OrderService.createOrder] Step 4: Validating balance...",
     );
     const finalPrice = new Prisma.Decimal(serverPriceNgn);
-    console.log(
+    logger.info(
       "[OrderService.createOrder] Price (server):", finalPrice.toString(),
       "Balance:", user.balance.toString(),
     );
     if (user.balance.lt(finalPrice)) {
-      console.error("[OrderService.createOrder] Insufficient balance:", {
+      logger.error("[OrderService.createOrder] Insufficient balance:", {
         balance: user.balance.toString(),
         required: finalPrice.toString(),
         deficit: finalPrice.sub(user.balance).toString(),
       });
       throw new Error("Insufficient balance");
     }
-    console.log("[OrderService.createOrder] Balance check passed.");
+    logger.info("[OrderService.createOrder] Balance check passed.");
 
     // 5. Create Order and Transaction in a single DB operation
-    console.log(
+    logger.info(
       "[OrderService.createOrder] Step 5: Creating order record and deducting balance...",
     );
     const order = await prisma.$transaction(
@@ -216,24 +217,24 @@ export class OrderService {
         timeout: 15000, // Max transaction execution time (15s)
       },
     );
-    console.log("[OrderService.createOrder] Order record created:", {
+    logger.info("[OrderService.createOrder] Order record created:", {
       orderId: order.id,
       orderNumber: order.orderNumber,
     });
 
     // 6. Request number with provider failover (outside the main DB transaction)
-    console.log(
+    logger.info(
       "[OrderService.createOrder] Step 6: Requesting number from providers...",
     );
     const providerErrors: Array<{ provider: string; message: string }> = [];
 
     for (const provider of providers) {
       try {
-        console.log(
+        logger.info(
           `[OrderService.createOrder] Trying provider: ${provider.name} (id: ${provider.id})`,
         );
         const providerService = this.getProviderService(provider.name);
-        console.log(
+        logger.info(
           `[OrderService.createOrder] Requesting number from ${provider.name} for service=${serviceCode} country=${country}...`,
         );
 
@@ -243,7 +244,7 @@ export class OrderService {
           order.id,
         );
 
-        console.log(
+        logger.info(
           `[OrderService.createOrder] Provider ${provider.name} returned:`,
           {
             id: providerOrder.id,
@@ -265,8 +266,8 @@ export class OrderService {
           },
         });
 
-        console.log("[OrderService.createOrder] ========== SUCCESS ==========");
-        console.log("[OrderService.createOrder] Order updated:", {
+        logger.info("[OrderService.createOrder] ========== SUCCESS ==========");
+        logger.info("[OrderService.createOrder] Order updated:", {
           orderId: updatedOrder.id,
           phoneNumber: updatedOrder.phoneNumber,
           status: updatedOrder.status,
@@ -283,16 +284,16 @@ export class OrderService {
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
         providerErrors.push({ provider: provider.name, message });
-        console.warn(
+        logger.warn(
           `[OrderService.createOrder] Provider ${provider.name} failed for order ${order.id}: ${message}`,
         );
         if (e instanceof Error && e.stack) {
-          console.warn(`[OrderService.createOrder] Stack trace:`, e.stack);
+          logger.warn(`[OrderService.createOrder] Stack trace:`, e.stack);
         }
       }
     }
 
-    console.error(
+    logger.error(
       `[OrderService] All providers failed for order ${order.id}. Refunding...`,
       providerErrors,
     );
@@ -323,17 +324,62 @@ export class OrderService {
     );
   }
 
+  private isSmsManProvider(provider: string | null | undefined): boolean {
+    const name = (provider || "").toLowerCase();
+    return (
+      name.includes("lion") ||
+      name.includes("sms-man") ||
+      name === "smsman"
+    );
+  }
+
+  private isTextVerifiedProvider(provider: string | null | undefined): boolean {
+    const name = (provider || "").toLowerCase();
+    return name.includes("panda") || name.includes("textverified");
+  }
+
   private getProviderService(
     providerName: string,
   ): SMSManService | TextVerifiedService {
-    const name = providerName.toLowerCase();
-    if (name.includes("lion") || name.includes("sms-man")) {
+    if (this.isSmsManProvider(providerName)) {
       return new SMSManService();
     }
-    if (name.includes("panda") || name.includes("textverified")) {
+    if (this.isTextVerifiedProvider(providerName)) {
       return new TextVerifiedService();
     }
     throw new Error(`Unknown provider: ${providerName}`);
+  }
+
+  /**
+   * Best-effort provider cancellation. Already-closed numbers are treated as success
+   * so user/admin/expiry refunds can still complete.
+   */
+  private async cancelProviderReservation(order: {
+    id: string;
+    externalId?: string | null;
+    providerId?: string | null;
+  }): Promise<void> {
+    if (!order.externalId || !order.providerId) return;
+
+    const providerService = this.getProviderService(order.providerId);
+    if (providerService instanceof SMSManService) {
+      await providerService.cancelNumber(order.externalId);
+    } else if (providerService instanceof TextVerifiedService) {
+      await providerService.cancelVerification(order.externalId);
+    }
+
+    await prisma.systemLog.create({
+      data: {
+        level: "INFO",
+        service: "order-processor",
+        message: "Provider cancellation executed",
+        metadata: {
+          orderId: order.id,
+          externalId: order.externalId,
+          provider: order.providerId,
+        },
+      },
+    });
   }
 
   /**
@@ -341,8 +387,7 @@ export class OrderService {
    * combination in NGN, with admin pricing rules applied.
    *
    * For SMS-Man: fetches the live RUB price, converts to USD, applies markup, converts to NGN.
-   * For TextVerified: uses the default base price + markup (exact price requires a separate
-   *   TextVerified API call which is done lazily on the client; the markup is still applied).
+   * For TextVerified: fetches the live USD verification price, then applies markup.
    *
    * This is the ONLY price the backend trusts for charging. The client-supplied price
    * is used only as a stale-cache guard.
@@ -367,7 +412,7 @@ export class OrderService {
       const smsMan = new SMSManService();
       const priceRub = await smsMan.getPriceForService(serviceCode, country);
       baseUsd = Number((priceRub / rubToUsdRate).toFixed(6));
-      console.log(
+      logger.info(
         `[OrderService.calculateAuthoritativePrice] SMS-Man: ${priceRub} RUB ÷ ${rubToUsdRate} = $${baseUsd} USD`,
       );
     } else {
@@ -391,13 +436,13 @@ export class OrderService {
           });
           if (result.price > 0) {
             tvPrice = result.price;
-            console.log(
+            logger.info(
               `[panda][Price] Got price for ${serviceCode} with capability=${cap}: $${tvPrice}`,
             );
             break;
           }
         } catch (e) {
-          console.warn(
+          logger.warn(
             `[panda][Price] Pricing failed for ${serviceCode} with capability=${cap}: ${(e as Error).message}`,
           );
         }
@@ -431,7 +476,7 @@ export class OrderService {
         })`
       : " (Default 20%)";
 
-    console.log(
+    logger.info(
       `[OrderService.calculateAuthoritativePrice] $${baseUsd.toFixed(4)} base` +
         ` + $${pricing.profit.toFixed(4)} markup = $${finalUsd.toFixed(4)} USD` +
         ` → ₦${finalNgn} NGN` +
@@ -446,7 +491,7 @@ export class OrderService {
     country: string,
     preferred?: string,
   ) {
-    console.log("[OrderService.getAvailableProviders] Input:", {
+    logger.info("[OrderService.getAvailableProviders] Input:", {
       serviceCode,
       country,
       preferred,
@@ -473,7 +518,7 @@ export class OrderService {
     };
 
     const normalizedPreferred = normalizeProvider(preferred);
-    console.log(
+    logger.info(
       "[OrderService.getAvailableProviders] Normalized preferred:",
       normalizedPreferred,
     );
@@ -509,7 +554,7 @@ export class OrderService {
 
     // If a preferred provider was specified but not added, return empty
     if (normalizedPreferred && availableProviders.length === 0) {
-      console.warn(
+      logger.warn(
         "[OrderService.getAvailableProviders] Preferred provider not available:",
         { preferred, normalizedPreferred, country },
       );
@@ -518,7 +563,7 @@ export class OrderService {
 
     // Sort by priority (higher priority first)
     const sorted = availableProviders.sort((a, b) => b.priority - a.priority);
-    console.log(
+    logger.info(
       "[OrderService.getAvailableProviders] Result:",
       sorted.map((p) => `${p.name} (priority ${p.priority})`),
     );
@@ -576,28 +621,22 @@ export class OrderService {
   }
 
   async getOrderStatus(orderId: string) {
-    console.log("[OrderService] getOrderStatus ->", { orderId });
+    logger.info("[OrderService] getOrderStatus", { orderId });
 
-    // Cache read is best-effort — fall through to DB on Redis failure
+    const TERMINAL_STATUSES = [
+      "COMPLETED",
+      "CANCELLED",
+      "EXPIRED",
+      "REFUNDED",
+      "FAILED",
+    ];
+
+    // Cache is only used for terminal orders. Active orders must hit the DB so
+    // SMS polling and expiry/cancellation still run.
     try {
       const cached = await redis.getOrderStatus(orderId);
-      if (cached) {
-        console.log("[OrderService] cache hit", cached);
-        if (cached.status === "WAITING_FOR_SMS" && !cached.smsCode) {
-          await this.tryFetchAndUpdateSmsCode(
-            orderId,
-            cached.provider,
-            cached.externalId,
-          );
-          try {
-            const refreshed = await redis.getOrderStatus(orderId);
-            if (refreshed) return refreshed;
-          } catch {
-            // Redis unavailable — fall through to DB fetch below
-          }
-        } else {
-          return cached;
-        }
+      if (cached && TERMINAL_STATUSES.includes(cached.status)) {
+        return cached;
       }
     } catch {
       // Redis unavailable — fall through to DB
@@ -624,12 +663,11 @@ export class OrderService {
     });
     if (!order) return null;
 
-    // Opportunistic refresh for TextVerified: if we have an href and no number yet
+    // Opportunistic refresh for TextVerified: number may arrive after create
     try {
       if (
-        order.providerId === "textverified" &&
+        this.isTextVerifiedProvider(order.providerId) &&
         order.externalId &&
-        order.externalId.startsWith("http") &&
         !order.phoneNumber &&
         (order.status === "WAITING_FOR_SMS" || order.status === "PROCESSING")
       ) {
@@ -640,14 +678,17 @@ export class OrderService {
             where: { id: order.id },
             data: {
               phoneNumber: details.number,
+              ...(details.id && details.id !== order.externalId
+                ? { externalId: details.id }
+                : {}),
               status:
                 details.state === "verificationCompleted"
                   ? "WAITING_FOR_SMS"
                   : order.status,
             },
           });
-          // Update local snapshot
           order.phoneNumber = details.number;
+          if (details.id) order.externalId = details.id;
           order.status =
             details.state === "verificationCompleted"
               ? "WAITING_FOR_SMS"
@@ -655,10 +696,10 @@ export class OrderService {
         }
       }
     } catch (e) {
-      console.warn(
-        "[OrderService] Panda details refresh failed",
-        e instanceof Error ? e.message : String(e),
-      );
+      logger.warn("[OrderService] TextVerified details refresh failed", {
+        orderId: order.id,
+        error: e instanceof Error ? e.message : String(e),
+      });
     }
 
     // If status is WAITING_FOR_SMS and no code, try to fetch code from provider
@@ -704,42 +745,10 @@ export class OrderService {
         order.status === "WAITING_FOR_SMS")
     ) {
       try {
-        // Attempt provider cancellation before refund (idempotent, safe if called twice)
         try {
-          if (order.externalId) {
-            const providerService = this.getProviderService(order.providerId);
-            if (providerService instanceof SMSManService) {
-              await providerService.cancelNumber(order.externalId);
-              await prisma.systemLog.create({
-                data: {
-                  level: "INFO",
-                  service: "order-processor",
-                  message: "Auto-expire: provider cancellation (SMS-Man)",
-                  metadata: {
-                    orderId: order.id,
-                    externalId: order.externalId,
-                    provider: order.providerId,
-                  },
-                },
-              });
-            } else if (providerService instanceof TextVerifiedService) {
-              await providerService.cancelVerification(order.externalId);
-              await prisma.systemLog.create({
-                data: {
-                  level: "INFO",
-                  service: "order-processor",
-                  message: "Auto-expire: provider cancellation (TextVerified)",
-                  metadata: {
-                    orderId: order.id,
-                    externalId: order.externalId,
-                    provider: order.providerId,
-                  },
-                },
-              });
-            }
-          }
+          await this.cancelProviderReservation(order);
         } catch (e) {
-          console.error("[OrderService] Provider cancel on expire failed", e);
+          logger.error("[OrderService] Provider cancel on expire failed", e);
           await prisma.systemLog.create({
             data: {
               level: "WARN",
@@ -758,7 +767,7 @@ export class OrderService {
         await this.refundOrder(order.id, "EXPIRED");
         order.status = "EXPIRED";
       } catch (e) {
-        console.error(
+        logger.error(
           "[OrderService] Failed to auto-expire order",
           order.id,
           e,
@@ -773,7 +782,7 @@ export class OrderService {
     delete (payload as any).providerId;
     // Cache write is fire-and-forget — order status must be readable even if Redis is down
     redis.setOrderStatus(orderId, payload, 300).catch(() => {});
-    console.log("[OrderService] getOrderStatus payload", payload);
+    logger.info("[OrderService] getOrderStatus payload", payload);
     return payload;
   }
 
@@ -790,127 +799,60 @@ export class OrderService {
     let message: string | undefined;
     let status: string | undefined;
     try {
-      if (providerId === "textverified") {
+      if (this.isTextVerifiedProvider(providerId)) {
         const tv = new TextVerifiedService();
-        // Fetch verification details, look for code
-        const detailsUrl = externalId;
-        console.log(
-          "[tryFetchAndUpdateSmsCode] Fetching Panda:",
-          detailsUrl,
-        );
-        // Try fetching messages from /messages endpoint
-        const messagesUrl = `${detailsUrl}/messages`;
-        console.log(
-          "[tryFetchAndUpdateSmsCode] Also trying messages URL:",
-          messagesUrl,
-        );
-        let res = await fetch(messagesUrl, {
-          headers: { Authorization: `Bearer ${await tv.getBearerToken()}` },
+        logger.info("[tryFetchAndUpdateSmsCode] Fetching TextVerified SMS", {
+          orderId,
+          externalId,
         });
-        if (!res.ok) {
-          // Fallback to details URL
-          console.log(
-            "[tryFetchAndUpdateSmsCode] Messages URL failed, trying details URL",
-          );
-          res = await fetch(detailsUrl, {
-            headers: { Authorization: `Bearer ${await tv.getBearerToken()}` },
+        const messages = await tv.getSmsForVerification(externalId);
+        for (const msg of messages) {
+          const parsed = msg.parsedCode || "";
+          const content = msg.smsContent || "";
+          if (parsed && /\d{3,}/.test(parsed)) {
+            code = (parsed.match(/\d{3,}/) || [])[0];
+            message = content || parsed;
+            status = "COMPLETED";
+            break;
+          }
+          if (content && /\d{3,}/.test(content)) {
+            code = (content.match(/\d{3,}/) || [])[0];
+            message = content;
+            status = "COMPLETED";
+            break;
+          }
+        }
+        if (code) {
+          logger.info("[tryFetchAndUpdateSmsCode] Found TextVerified code", {
+            orderId,
+          });
+        } else {
+          logger.info("[tryFetchAndUpdateSmsCode] No TextVerified code yet", {
+            orderId,
+            messageCount: messages.length,
           });
         }
-        console.log(
-          "[tryFetchAndUpdateSmsCode] Panda fetch status:",
-          res.status,
-        );
-        if (res.ok) {
-          const data = await res.json();
-          console.log(
-            "[tryFetchAndUpdateSmsCode] Panda response:",
-            JSON.stringify(data, null, 2),
-          );
-          // TextVerified: code may be in data.messages[0].parsed_code or message content
-          let foundCode = null;
-          let foundMessage = null;
-          const messages = data?.data?.messages || data?.messages || [];
-          if (Array.isArray(messages) && messages.length > 0) {
-            for (const msg of messages) {
-              if (msg.parsed_code && typeof msg.parsed_code === "string") {
-                foundCode = msg.parsed_code;
-                foundMessage = msg.message || msg.parsed_code;
-                break;
-              } else if (
-                typeof msg.message === "string" &&
-                /\d{3,}/.test(msg.message)
-              ) {
-                foundCode = (msg.message.match(/\d{3,}/) || [])[0];
-                foundMessage = msg.message;
-                break;
-              }
-            }
-          }
-          if (!foundCode && data?.code && /\d{3,}/.test(data.code)) {
-            foundCode = data.code.match(/\d{3,}/)[0];
-            foundMessage = data.code;
-          }
-          if (!foundCode && data?.sms && /\d{3,}/.test(data.sms)) {
-            foundCode = data.sms.match(/\d{3,}/)[0];
-            foundMessage = data.sms;
-          }
-          if (!foundCode && data?.data?.code && /\d{3,}/.test(data.data.code)) {
-            foundCode = data.data.code.match(/\d{3,}/)[0];
-            foundMessage = data.data.code;
-          }
-          if (!foundCode && data?.data?.sms && /\d{3,}/.test(data.data.sms)) {
-            foundCode = data.data.sms.match(/\d{3,}/)[0];
-            foundMessage = data.data.sms;
-          }
-          if (
-            !foundCode &&
-            data?.parsed_code &&
-            /\d{3,}/.test(data.parsed_code)
-          ) {
-            foundCode = data.parsed_code.match(/\d{3,}/)[0];
-            foundMessage = data.parsed_code;
-          }
-          if (foundCode) {
-            code = foundCode;
-            message = foundMessage;
-            status = "COMPLETED";
-            console.log(
-              "[tryFetchAndUpdateSmsCode] Found code in Panda:",
-              code,
-            );
-          } else {
-            console.log(
-              "[tryFetchAndUpdateSmsCode] No code found in Panda response",
-            );
-          }
-        } else {
-          console.log(
-            "[tryFetchAndUpdateSmsCode] Panda fetch failed:",
-            res.status,
-            await res.text(),
-          );
-        }
-      } else if (providerId === "sms-man") {
+      } else if (this.isSmsManProvider(providerId)) {
         // SMSMan: poll for code
         const apiKey = process.env.SMSMAN_API_KEY;
         if (!apiKey) {
-          console.log("[tryFetchAndUpdateSmsCode] No SMSMAN_API_KEY");
+          logger.info("[tryFetchAndUpdateSmsCode] No SMSMAN_API_KEY");
           return;
         }
         // externalId is request_id
         const url = `https://api.sms-man.com/control/get-sms?token=${apiKey}&request_id=${externalId}`;
-        console.log(
+        logger.info(
           "[tryFetchAndUpdateSmsCode] Fetching SMS-Man:",
           url.replace(apiKey, "***"),
         );
         const res = await fetch(url);
-        console.log(
+        logger.info(
           "[tryFetchAndUpdateSmsCode] SMS-Man fetch status:",
           res.status,
         );
         if (res.ok) {
           const data = await res.json();
-          console.log(
+          logger.info(
             "[tryFetchAndUpdateSmsCode] SMS-Man response:",
             JSON.stringify(data, null, 2),
           );
@@ -944,17 +886,17 @@ export class OrderService {
             code = (foundSms.match(/\d{3,}/) || [])[0];
             message = foundSms;
             status = "COMPLETED";
-            console.log(
+            logger.info(
               "[tryFetchAndUpdateSmsCode] Found code in SMS-Man:",
               code,
             );
           } else {
-            console.log(
+            logger.info(
               "[tryFetchAndUpdateSmsCode] No code found in SMS-Man response",
             );
           }
         } else {
-          console.log(
+          logger.info(
             "[tryFetchAndUpdateSmsCode] SMS-Man fetch failed:",
             res.status,
             await res.text(),
@@ -994,7 +936,7 @@ export class OrderService {
         }
       }
     } catch (e) {
-      console.warn(`[OrderService] tryFetchAndUpdateSmsCode failed`, e);
+      logger.warn(`[OrderService] tryFetchAndUpdateSmsCode failed`, e);
     }
   }
 
@@ -1017,7 +959,7 @@ export class OrderService {
           });
 
           if (!order) {
-            console.error(`[Refund] Order ${orderId} not found.`);
+            logger.error(`[Refund] Order ${orderId} not found.`);
             return;
           }
 
@@ -1029,7 +971,7 @@ export class OrderService {
             order.status === "FAILED" ||
             order.status === "EXPIRED"
           ) {
-            console.warn(
+            logger.warn(
               `[Refund] Order ${orderId} is already in a final state (${order.status}). No refund will be processed.`,
             );
             return;
@@ -1063,7 +1005,7 @@ export class OrderService {
 
           // If no rows were updated, another refund already went through
           if (updated.count === 0) {
-            console.warn(
+            logger.warn(
               `[Refund] Order ${orderId} was already processed by a concurrent refund. Aborting.`,
             );
             return;
@@ -1092,7 +1034,7 @@ export class OrderService {
             },
           });
 
-          console.log(
+          logger.info(
             `[Refund] Successfully processed refund for order ${orderId}.`,
           );
         }, REFUND_TRANSACTION_OPTIONS);
@@ -1101,7 +1043,7 @@ export class OrderService {
           throw error;
         }
 
-        console.warn(
+        logger.warn(
           `[Refund] Transaction expired for order ${orderId}; retrying once...`,
         );
         await delay(250 * attempt);
@@ -1109,9 +1051,13 @@ export class OrderService {
     }
   }
 
-  async cancelOrder(orderId: string, userId: string) {
+  async cancelOrder(
+    orderId: string,
+    userId: string,
+    options?: { asAdmin?: boolean; reason?: string },
+  ) {
     const order = await prisma.order.findUnique({
-      where: { id: orderId, userId },
+      where: options?.asAdmin ? { id: orderId } : { id: orderId, userId },
     });
     if (!order) throw new Error("Order not found");
 
@@ -1123,44 +1069,14 @@ export class OrderService {
       throw new Error(`Order is in a non-cancellable state: ${order.status}`);
     }
 
-    // Cancel the number with the provider if we have externalId
+    const reason = options?.asAdmin
+      ? options.reason || "ADMIN_CANCELLED"
+      : "USER_CANCELLED";
+
     try {
-      if (order.externalId) {
-        const providerService = this.getProviderService(order.providerId);
-        if (providerService instanceof SMSManService) {
-          await providerService.cancelNumber(order.externalId);
-          await prisma.systemLog.create({
-            data: {
-              level: "INFO",
-              service: "order-processor",
-              message: "Provider cancellation executed (SMS-Man)",
-              metadata: {
-                orderId: order.id,
-                externalId: order.externalId,
-                provider: order.providerId,
-                reason: "USER_CANCELLED",
-              },
-            },
-          });
-        } else if (providerService instanceof TextVerifiedService) {
-          await providerService.cancelVerification(order.externalId);
-          await prisma.systemLog.create({
-            data: {
-              level: "INFO",
-              service: "order-processor",
-              message: "Provider cancellation executed (TextVerified)",
-              metadata: {
-                orderId: order.id,
-                externalId: order.externalId,
-                provider: order.providerId,
-                reason: "USER_CANCELLED",
-              },
-            },
-          });
-        }
-      }
+      await this.cancelProviderReservation(order);
     } catch (e) {
-      console.error("[OrderService] Provider cancel failed:", e);
+      logger.error("[OrderService] Provider cancel failed", e);
       await prisma.systemLog.create({
         data: {
           level: "WARN",
@@ -1171,13 +1087,22 @@ export class OrderService {
             orderId: order.id,
             externalId: order.externalId,
             provider: order.providerId,
-            reason: "USER_CANCELLED",
+            reason,
+            asAdmin: Boolean(options?.asAdmin),
           },
         },
       });
     }
 
     await this.refundOrder(orderId, "USER_CANCELLED");
+    await redis.invalidateOrder(orderId).catch(() => {});
+
+    logger.info("[OrderService] Order cancelled and refunded", {
+      orderId,
+      provider: order.providerId,
+      asAdmin: Boolean(options?.asAdmin),
+      reason,
+    });
 
     return { ok: true, message: "Order cancelled and refunded." };
   }
@@ -1189,7 +1114,7 @@ export class SMSManService {
   private apiKey = process.env.SMSMAN_API_KEY || "";
 
   async getAvailableServices() {
-    console.log("[SMSManService] Starting optimized service fetch...");
+    logger.info("[SMSManService] Starting optimized service fetch...");
 
     try {
       if (!this.apiKey) {
@@ -1217,7 +1142,7 @@ export class SMSManService {
       const countries = Object.values(countriesData);
       const applications = Object.values(applicationsData);
 
-      console.log(
+      logger.info(
         `[SMSManService] Loaded ${countries.length} countries, ${applications.length} applications`,
       );
 
@@ -1273,12 +1198,12 @@ export class SMSManService {
         },
       );
 
-      console.log(
+      logger.info(
         `[SMSManService] Successfully processed ${services.length} services`,
       );
       return services;
     } catch (err) {
-      console.error("[SMSManService] Error:", err);
+      logger.error("[SMSManService] Error:", err);
       throw new Error(
         `SMS-Man API failed: ${
           err instanceof Error ? err.message : "Unknown error"
@@ -1346,7 +1271,7 @@ export class SMSManService {
     if (!contentType || !contentType.includes("application/json")) {
       // If the request is already closed/expired, SMS-Man may return HTML error page
       if (!res.ok) {
-        console.warn(
+        logger.warn(
           `[SMSManService] Cancel request ${externalId} failed with status ${res.status} (likely already closed)`,
         );
         return; // Don't throw - order likely already expired on provider side
@@ -1360,14 +1285,14 @@ export class SMSManService {
         data.error_code === "wrong_status" ||
         data.error_msg?.includes("already closed")
       ) {
-        console.warn(
+        logger.warn(
           `[SMSManService] Request ${externalId} already closed: ${data.error_msg}`,
         );
         return; // Don't throw - this is expected for expired orders
       }
       throw new Error(data.error_msg || "Failed to cancel SMS-Man request");
     }
-    console.log(`[SMSManService] Cancelled request ${externalId}`);
+    logger.info(`[SMSManService] Cancelled request ${externalId}`);
   }
 
   async requestNumber(
@@ -1375,27 +1300,27 @@ export class SMSManService {
     country: string,
     orderId: string,
   ): Promise<{ id: string; phoneNumber: string; cost?: number }> {
-    console.log("[SMSManService.requestNumber] ========== START ==========");
-    console.log("[SMSManService.requestNumber] Input:", {
+    logger.info("[SMSManService.requestNumber] ========== START ==========");
+    logger.info("[SMSManService.requestNumber] Input:", {
       serviceCode,
       country,
       orderId,
     });
 
     if (!this.apiKey) {
-      console.error("[SMSManService.requestNumber] API key not configured!");
+      logger.error("[SMSManService.requestNumber] API key not configured!");
       throw new Error("SMS-Man API key not configured");
     }
 
     // This needs to be reversed; we get a service code like 'wa' and need the ID
-    console.log(
+    logger.info(
       "[SMSManService.requestNumber] Looking up application ID for service code:",
       serviceCode,
     );
     const applications = await this.getApplications();
     const app = applications.find((a) => a.code === serviceCode);
     if (!app) {
-      console.error(
+      logger.error(
         "[SMSManService.requestNumber] Service code not found in applications:",
         {
           serviceCode,
@@ -1405,38 +1330,38 @@ export class SMSManService {
       throw new Error(`SMS-Man does not support service code: ${serviceCode}`);
     }
     const applicationId = app.id;
-    console.log("[SMSManService.requestNumber] Found application:", {
+    logger.info("[SMSManService.requestNumber] Found application:", {
       code: serviceCode,
       id: applicationId,
     });
 
-    console.log(
+    logger.info(
       "[SMSManService.requestNumber] Looking up country ID for:",
       country,
     );
     const countryId = await this.getCountryIdFromCode(country);
-    console.log("[SMSManService.requestNumber] Country ID:", countryId);
+    logger.info("[SMSManService.requestNumber] Country ID:", countryId);
 
     const url = `${this.apiUrl}/get-number?token=${this.apiKey}&country_id=${countryId}&application_id=${applicationId}`;
-    console.log(
+    logger.info(
       "[SMSManService.requestNumber] GET",
       url.replace(this.apiKey, "***"),
     );
 
     const res = await fetch(url);
     const data = await res.json();
-    console.log(
+    logger.info(
       "[SMSManService.requestNumber] Response:",
       JSON.stringify(data),
     );
 
     if (data.success === false || data.error_code) {
-      console.error("[SMSManService.requestNumber] Provider error:", data);
+      logger.error("[SMSManService.requestNumber] Provider error:", data);
       throw new Error(data.error_msg || data.error || "Failed to get number");
     }
 
-    console.log("[SMSManService.requestNumber] ========== SUCCESS ==========");
-    console.log("[SMSManService.requestNumber] Got number:", {
+    logger.info("[SMSManService.requestNumber] ========== SUCCESS ==========");
+    logger.info("[SMSManService.requestNumber] Got number:", {
       request_id: data.request_id,
       number: data.number,
       country_id: data.country_id,
@@ -1511,7 +1436,7 @@ export class SMSManService {
       // Redis unavailable — continue to live API
     }
 
-    console.log("[SMSManService] Fetching countries from API...");
+    logger.info("[SMSManService] Fetching countries from API...");
     const res = await fetch(`${this.apiUrl}/countries?token=${this.apiKey}`);
 
     if (!res.ok) {
@@ -1528,7 +1453,7 @@ export class SMSManService {
       }
     });
 
-    console.log(`[SMSManService] Cached ${countryMap.size} countries from API`);
+    logger.info(`[SMSManService] Cached ${countryMap.size} countries from API`);
 
     // Cache write is fire-and-forget
     redis
@@ -1546,7 +1471,7 @@ export class SMSManService {
     const countryId = countries.get(countryCode.toUpperCase());
 
     if (!countryId) {
-      console.warn(
+      logger.warn(
         `[SMSManService] Country code "${countryCode}" not found in SMS-Man. Available: ${Array.from(
           countries.keys(),
         )

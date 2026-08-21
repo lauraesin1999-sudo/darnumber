@@ -7,6 +7,7 @@ import { toast } from "@/lib/toast";
 import { Card } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
 import { Badge } from "@/components/ui/badge";
+import { logger } from "@/lib/logger";
 
 export default function AdminDashboard() {
   const router = useRouter();
@@ -22,7 +23,7 @@ export default function AdminDashboard() {
       const response = await api.getAdminDashboard();
       setStats(response.data);
     } catch (error: any) {
-      console.error("Failed to fetch dashboard:", error);
+      logger.error("Failed to fetch dashboard:", error);
       if (error.response?.status === 403) {
         toast.api.unauthorized();
         router.push("/dashboard");

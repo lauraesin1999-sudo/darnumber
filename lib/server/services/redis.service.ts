@@ -1,4 +1,5 @@
 import Redis from "ioredis";
+import { logger } from "@/lib/logger";
 
 export class RedisService {
   private client: Redis;
@@ -17,11 +18,11 @@ export class RedisService {
 
     this.client.on("connect", () => {
       this.isConnected = true;
-      console.log("✅ Redis connected");
+      logger.info("✅ Redis connected");
     });
     this.client.on("error", (error) => {
       this.isConnected = false;
-      console.error("❌ Redis error:", error);
+      logger.error("❌ Redis error:", error);
     });
   }
 
@@ -29,7 +30,7 @@ export class RedisService {
     try {
       return await this.client.get(key);
     } catch (e) {
-      console.error(`Redis GET error for key ${key}:`, e);
+      logger.error(`Redis GET error for key ${key}:`, e);
       return null;
     }
   }
@@ -39,7 +40,7 @@ export class RedisService {
       if (ttl) await this.client.setex(key, ttl, value);
       else await this.client.set(key, value);
     } catch (e) {
-      console.error(`Redis SET error for key ${key}:`, e);
+      logger.error(`Redis SET error for key ${key}:`, e);
     }
   }
 
@@ -47,7 +48,7 @@ export class RedisService {
     try {
       return await this.client.del(...keys);
     } catch (e) {
-      console.error("Redis DEL error:", e);
+      logger.error("Redis DEL error:", e);
       return 0;
     }
   }
@@ -56,7 +57,7 @@ export class RedisService {
     try {
       return (await this.client.exists(key)) === 1;
     } catch (e) {
-      console.error("Redis EXISTS error:", e);
+      logger.error("Redis EXISTS error:", e);
       return false;
     }
   }
@@ -65,7 +66,7 @@ export class RedisService {
     try {
       await this.client.expire(key, seconds);
     } catch (e) {
-      console.error("Redis EXPIRE error:", e);
+      logger.error("Redis EXPIRE error:", e);
     }
   }
 
@@ -73,7 +74,7 @@ export class RedisService {
     try {
       return await this.client.keys(pattern);
     } catch (e) {
-      console.error("Redis KEYS error:", e);
+      logger.error("Redis KEYS error:", e);
       return [];
     }
   }

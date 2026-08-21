@@ -25,6 +25,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
+import { logger } from "@/lib/logger";
 
 const ORDER_STATUSES = [
   { value: "all", label: "All Statuses" },
@@ -74,7 +75,7 @@ export default function OrdersPage() {
       setOrders(response.data);
       setPagination(response.pagination);
     } catch (error: any) {
-      console.error("Failed to fetch orders:", error);
+      logger.error("Failed to fetch orders:", error);
       if (error.response?.status === 401) {
         toast.auth.sessionExpired();
         router.push("/login");

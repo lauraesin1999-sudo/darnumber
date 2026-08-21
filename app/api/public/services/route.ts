@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { json, error } from "@/lib/server/utils/response";
 import { getServicesCatalog } from "@/lib/server/services/services-catalog.service";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 // Catalog is a small unique-service index (tens of KB), not the old ~54MB matrix.
@@ -42,7 +43,7 @@ export async function GET(_req: NextRequest) {
       },
     );
   } catch (e) {
-    console.error("[public/services] error", e);
+    logger.error("[public/services] error", e);
     return error("Failed to load public services catalog", 500);
   }
 }

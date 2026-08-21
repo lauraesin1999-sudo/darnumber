@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "@/lib/toast";
 import { formatPhone } from "@/lib/phone";
+import { logger } from "@/lib/logger";
 
 export default function OrderDetailPage() {
   const router = useRouter();
@@ -120,7 +121,7 @@ export default function OrderDetailPage() {
         });
         setServiceNameByCode(serviceMap);
       } catch (e) {
-        console.error("[OrderDetailPage] Failed to fetch metadata:", e);
+        logger.error("[OrderDetailPage] Failed to fetch metadata:", e);
       }
     };
     loadMetadata();
@@ -131,7 +132,7 @@ export default function OrderDetailPage() {
       const response = await api.getOrder(orderId);
       setOrder(response.data);
     } catch (error) {
-      console.error("Failed to fetch order:", error);
+      logger.error("Failed to fetch order:", error);
       setError("Failed to load order details");
     } finally {
       setLoading(false);

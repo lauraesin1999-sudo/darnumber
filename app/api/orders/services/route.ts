@@ -4,6 +4,7 @@ import {
   getServicesCatalog,
   buildAndCacheServices,
 } from "@/lib/server/services/services-catalog.service";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,26 +20,26 @@ export { buildAndCacheServices };
  * /api/public/services/countries — do not expand the full matrix here.
  */
 export async function GET() {
-  console.log("\n╔════════════════════════════════════════════════╗");
-  console.log("║   GET /api/orders/services - Lightweight catalog");
-  console.log("╚════════════════════════════════════════════════╝");
+  logger.info("\n╔════════════════════════════════════════════════╗");
+  logger.info("║   GET /api/orders/services - Lightweight catalog");
+  logger.info("╚════════════════════════════════════════════════╝");
   try {
     try {
       const authResult = await requireAuth();
-      console.log(
+      logger.info(
         `[Auth] ✓ User ${authResult?.user?.email} authenticated (optional)`,
       );
     } catch {
-      console.log("[Auth] Serving public catalog (no auth)");
+      logger.info("[Auth] Serving public catalog (no auth)");
     }
 
     const catalog = await getServicesCatalog();
 
     if (catalog) {
-      console.log(
+      logger.info(
         `[Catalog] ✓ Serving ${catalog.services.length} unique services`,
       );
-      console.log("╚════════════════════════════════════════════════╝\n");
+      logger.info("╚════════════════════════════════════════════════╝\n");
       return json(
         { ok: true, data: catalog },
         {
@@ -50,7 +51,7 @@ export async function GET() {
       );
     }
 
-    console.log("╚════════════════════════════════════════════════╝\n");
+    logger.info("╚════════════════════════════════════════════════╝\n");
     return error(
       "No services available from providers. Please check API keys and try again.",
       503,
@@ -59,11 +60,11 @@ export async function GET() {
     if (e instanceof Error && e.message === "Unauthorized") {
       return error("Unauthorized", 401);
     }
-    console.error(
+    logger.error(
       "[Error] ✗ Request failed:",
       e instanceof Error ? e.message : e,
     );
-    console.log("╚════════════════════════════════════════════════╝\n");
+    logger.info("╚════════════════════════════════════════════════╝\n");
     return error(
       `Service aggregation failed: ${e instanceof Error ? e.message : "Unknown error"}`,
       500,

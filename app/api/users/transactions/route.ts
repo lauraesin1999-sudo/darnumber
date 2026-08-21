@@ -3,6 +3,7 @@ import { json, error } from "@/lib/server/utils/response";
 import { requireAuth } from "@/lib/server/auth";
 import { prisma } from "@/lib/server/prisma";
 import { getRedisService } from "@/lib/server/services/redis.service";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 
@@ -79,7 +80,7 @@ export async function GET(req: NextRequest) {
       prisma.transaction.count({ where }),
     ]);
 
-    console.log("[Route][Users][Transactions] Fetched successfully", {
+    logger.info("[Route][Users][Transactions] Fetched successfully", {
       userId,
       page,
       total,
@@ -105,7 +106,7 @@ export async function GET(req: NextRequest) {
 
     return json({ ok: true, data: result });
   } catch (e) {
-    console.error("[Route][Users][Transactions] Error:", e);
+    logger.error("[Route][Users][Transactions] Error:", e);
     if (e instanceof Error && e.message === "Unauthorized")
       return error("Unauthorized", 401);
     return error("Unexpected error", 500);

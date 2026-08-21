@@ -2,13 +2,14 @@ import { NextRequest } from "next/server";
 import { requireAuth } from "@/lib/server/auth";
 import { json, error } from "@/lib/server/utils/response";
 import { prisma } from "@/lib/server/prisma";
+import { OrderService } from "@/lib/server/services/order.service";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 
-// Cancel an order
 export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ orderId: string }> }
+  _req: NextRequest,
+  { params }: { params: Promise<{ orderId: string }> },
 ) {
   try {
     const session = await requireAuth();
@@ -17,46 +18,31 @@ export async function POST(
     }
 
     const { orderId } = await params;
-
-    const order = await prisma.order.findUnique({
-      where: { id: orderId },
-      include: { user: true },
+    const service = new OrderService();
+    const result = await service.cancelOrder(orderId, session.user.id, {
+      asAdmin: true,
+      reason: "ADMIN_CANCELLED",
     });
 
-    if (!order) {
-      return error("Order not found", 404);
-    }
-
-    if (!["PENDING", "PROCESSING", "WAITING_FOR_SMS"].includes(order.status)) {
-      return error(`Cannot cancel order with status ${order.status}`, 400);
-    }
-
-    // Update order status
-    const updatedOrder = await prisma.order.update({
-      where: { id: orderId },
-      data: { status: "CANCELLED" },
-    });
-
-    // Log the action
+    const order = await prisma.order.findUnique({ where: { id: orderId } });
     await prisma.activityLog.create({
       data: {
-        userId: order.userId,
+        userId: order?.userId || session.user.id,
         action: "ORDER_CANCELLED_BY_ADMIN",
         resource: "order",
         resourceId: orderId,
         metadata: {
           adminId: session.user.id,
-          previousStatus: order.status,
         },
       },
     });
 
-    return json({ ok: true, data: updatedOrder });
+    return json({ ok: true, data: result });
   } catch (e) {
-    console.error("Admin cancel order error:", e);
-    if (e instanceof Error && e.message === "Unauthorized") {
-      return error("Unauthorized", 401);
-    }
-    return error("Unexpected error", 500);
+    logger.error("Admin cancel order error", e);
+    const msg = e instanceof Error ? e.message : "Unexpected error";
+    if (msg === "Unauthorized") return error("Unauthorized", 401);
+    if (msg.includes("not found")) return error(msg, 404);
+    return error(msg, 400);
   }
 }

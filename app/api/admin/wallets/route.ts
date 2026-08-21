@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { requireAuth } from "@/lib/server/auth";
 import { json, error } from "@/lib/server/utils/response";
 import { prisma } from "@/lib/server/prisma";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 
@@ -100,7 +101,7 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (e) {
-    console.error("Admin wallets error:", e);
+    logger.error("Admin wallets error:", e);
     if (e instanceof Error && e.message === "Unauthorized") {
       return error("Unauthorized", 401);
     }

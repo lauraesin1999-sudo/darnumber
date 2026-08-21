@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { json, error } from "@/lib/server/utils/response";
 import { requireAuth } from "@/lib/server/auth";
 import { prisma } from "@/lib/server/prisma";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 
@@ -32,7 +33,7 @@ export async function GET(req: NextRequest) {
 
     if (!user) return error("User not found", 404);
 
-    console.log("[Route][Users][Profile] Fetched successfully", {
+    logger.info("[Route][Users][Profile] Fetched successfully", {
       userId: session.user.id,
     });
 
@@ -44,7 +45,7 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (e) {
-    console.error("[Route][Users][Profile] Error:", e);
+    logger.error("[Route][Users][Profile] Error:", e);
     if (e instanceof Error && e.message === "Unauthorized")
       return error("Unauthorized", 401);
     return error("Unexpected error", 500);
@@ -120,7 +121,7 @@ export async function PATCH(req: NextRequest) {
       },
     });
 
-    console.log("[Route][Users][Profile] Updated successfully", {
+    logger.info("[Route][Users][Profile] Updated successfully", {
       userId: session.user.id,
       changes: Object.keys(updateData),
     });
@@ -133,7 +134,7 @@ export async function PATCH(req: NextRequest) {
       },
     });
   } catch (e) {
-    console.error("[Route][Users][Profile] Update error:", e);
+    logger.error("[Route][Users][Profile] Update error:", e);
     if (e instanceof Error && e.message === "Unauthorized")
       return error("Unauthorized", 401);
     return error("Unexpected error", 500);

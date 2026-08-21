@@ -45,6 +45,7 @@ import {
   ChevronRight,
   Download,
 } from "lucide-react";
+import { logger } from "@/lib/logger";
 
 const ORDER_STATUSES = [
   { value: "all", label: "All Statuses" },
@@ -125,7 +126,7 @@ export default function AdminOrdersPage() {
         ...response.data?.pagination,
       }));
     } catch (error: any) {
-      console.error("Failed to fetch orders:", error);
+      logger.error("Failed to fetch orders:", error);
       if (error.response?.status === 403) {
         toast.api.unauthorized();
         router.push("/dashboard");
@@ -142,7 +143,7 @@ export default function AdminOrdersPage() {
       const response = await api.getOrderStats(startDate, endDate);
       setStats(response.data);
     } catch (error) {
-      console.error("Failed to fetch stats:", error);
+      logger.error("Failed to fetch stats:", error);
     }
   };
 

@@ -2,6 +2,8 @@ import { NextRequest } from "next/server";
 import { requireAuth } from "@/lib/server/auth";
 import { json, error } from "@/lib/server/utils/response";
 import { prisma } from "@/lib/server/prisma";
+import { OrderService } from "@/lib/server/services/order.service";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 
@@ -42,6 +44,28 @@ export async function POST(
     }
 
     const refundAmount = Number(order.finalPrice);
+
+    if (
+      ["PENDING", "PROCESSING", "WAITING_FOR_SMS"].includes(order.status) &&
+      order.externalId
+    ) {
+      try {
+        await new OrderService().cancelOrder(orderId, session.user.id, {
+          asAdmin: true,
+          reason: `ADMIN_REFUND: ${reason}`,
+        });
+        return json({
+          ok: true,
+          data: { cancelledAndRefunded: true, refundAmount },
+        });
+      } catch (cancelErr) {
+        logger.warn("Admin refund: provider cancel path failed, continuing with refund", {
+          orderId,
+          error:
+            cancelErr instanceof Error ? cancelErr.message : String(cancelErr),
+        });
+      }
+    }
 
     // Perform refund in a transaction
     const result = await prisma.$transaction(async (tx) => {
@@ -129,7 +153,7 @@ export async function POST(
 
     return json({ ok: true, data: result });
   } catch (e) {
-    console.error("Admin refund order error:", e);
+    logger.error("Admin refund order error", e);
     if (e instanceof Error && e.message === "Unauthorized") {
       return error("Unauthorized", 401);
     }

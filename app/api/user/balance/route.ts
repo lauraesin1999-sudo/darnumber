@@ -3,6 +3,7 @@ import { json, error } from "@/lib/server/utils/response";
 import { requireAuth } from "@/lib/server/auth";
 import { prisma } from "@/lib/server/prisma";
 import { getRedisService } from "@/lib/server/services/redis.service";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 
@@ -41,7 +42,7 @@ export async function GET(req: NextRequest) {
     // Cache write is fire-and-forget
     redis.setJSON(`user:balance:${userId}`, data, BALANCE_CACHE_TTL).catch(() => {});
 
-    console.log("[Route][User][Balance] Fetched + cached", { userId });
+    logger.info("[Route][User][Balance] Fetched + cached", { userId });
 
     return json({ ok: true, data });
   } catch (e) {

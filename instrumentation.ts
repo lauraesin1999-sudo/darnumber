@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 
 import { prisma } from "@/lib/server/prisma";
 import { OrderService } from "@/lib/server/services/order.service";
+import { logger } from "@/lib/logger";
 
 // Global guards to avoid overlaps/hot-reload dupes
 declare global {
@@ -37,11 +38,11 @@ async function sweepOverdueOrders() {
         expired++;
       } catch (e) {
         // Swallow per-order errors; they are logged in service
-        console.error("[OrderExpirer] Sweep failure for", o.id, e);
+        logger.error("[OrderExpirer] Sweep failure", { orderId: o.id, error: e instanceof Error ? e.message : String(e) });
       }
     }
   } catch (e) {
-    console.error("[OrderExpirer] Sweep error", e);
+    logger.error("[OrderExpirer] Sweep error", e);
   } finally {
     try {
       await prisma.systemLog.create({
@@ -64,6 +65,24 @@ export async function register() {
 
   if (global.__orderExpirerStarted) return;
   global.__orderExpirerStarted = true;
+
+  logger.info("[Startup] LogStack logger ready", {
+    hasApiKey: Boolean(process.env.LOGSTACK_API_KEY),
+  });
+
+  // Drop any poisoned empty TextVerified cache from the old capability filter
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const { TextVerifiedService } = await import(
+          "@/lib/server/services/textverified.service"
+        );
+        await new TextVerifiedService().invalidateCaches();
+      } catch (e) {
+        logger.warn("[Startup] TextVerified cache invalidation failed", e);
+      }
+    })();
+  }, 500);
 
   const intervalMs = parseInt(
     process.env.ORDER_EXPIRER_INTERVAL_MS || "60000",
@@ -88,18 +107,18 @@ export async function register() {
         try {
           const { getServicesCatalog, buildAndCacheServices } =
             await import("@/lib/server/services/services-catalog.service");
-          console.log("[Startup] Warming services catalog...");
+          logger.info("[Startup] Warming services catalog...");
           await getServicesCatalog(); // skeleton first
           await buildAndCacheServices(); // full countries/price index
-          console.log("[Startup] ✓ Services catalog cache warmed");
+          logger.info("[Startup] Services catalog cache warmed");
         } catch (e) {
-          console.warn("[Startup] Catalog warm failed:", e);
+          logger.warn("[Startup] Catalog warm failed", e);
         }
       })();
     }, 3000); // 3s after boot — after initial auth setup completes
 
-    console.log(
-      `[OrderExpirer] Registered background sweeper (interval=${intervalMs}ms)`,
-    );
+    logger.info("[OrderExpirer] Registered background sweeper", {
+      intervalMs,
+    });
   }
 }

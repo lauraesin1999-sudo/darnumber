@@ -40,6 +40,7 @@ import {
   Save,
   RefreshCw,
 } from "lucide-react";
+import { logger } from "@/lib/logger";
 
 interface UserProfile {
   id: string;
@@ -128,7 +129,7 @@ export default function ProfilePage() {
         country: profileData.country || "",
       });
     } catch (error: any) {
-      console.error("Failed to fetch profile:", error);
+      logger.error("Failed to fetch profile:", error);
       if (error.response?.status === 401) {
         toast.auth.sessionExpired();
         router.push("/login");
@@ -153,7 +154,7 @@ export default function ProfilePage() {
       setEditMode(false);
       fetchProfileData();
     } catch (error: any) {
-      console.error("Failed to update profile:", error);
+      logger.error("Failed to update profile:", error);
       toast.form.saveError(
         error.response?.data?.message || "Failed to update profile"
       );
@@ -191,7 +192,7 @@ export default function ProfilePage() {
         confirmPassword: "",
       });
     } catch (error: any) {
-      console.error("Failed to change password:", error);
+      logger.error("Failed to change password:", error);
       toast.error(
         "Password change failed",
         error.response?.data?.message || "Please check your current password."
@@ -222,7 +223,7 @@ export default function ProfilePage() {
       toast.form.saveSuccess("Bank details");
       setShowBankDialog(false);
     } catch (error: any) {
-      console.error("Failed to save bank details:", error);
+      logger.error("Failed to save bank details:", error);
       toast.form.saveError(
         error.response?.data?.message || "Failed to save bank details"
       );

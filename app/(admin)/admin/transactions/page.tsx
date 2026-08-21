@@ -36,6 +36,7 @@ import {
   ArrowDownCircle,
   Download,
 } from "lucide-react";
+import { logger } from "@/lib/logger";
 
 const TRANSACTION_TYPES = [
   { value: "all", label: "All Types" },
@@ -134,7 +135,7 @@ export default function AdminTransactionsPage() {
         setStats(response.data.stats);
       }
     } catch (error: any) {
-      console.error("Failed to fetch transactions:", error);
+      logger.error("Failed to fetch transactions:", error);
       if (error.response?.status === 403) {
         toast.api.unauthorized();
         router.push("/dashboard");

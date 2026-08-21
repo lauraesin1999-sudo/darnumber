@@ -5,6 +5,7 @@ import {
   sendContactConfirmationEmail,
 } from "@/lib/server/services/email.service";
 import crypto from "crypto";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 
@@ -100,7 +101,7 @@ export async function POST(req: NextRequest) {
     );
 
     if (!supportEmailResult) {
-      console.error("Failed to send contact form to support");
+      logger.error("Failed to send contact form to support");
       return error("Failed to send your message. Please try again later.", 500);
     }
 
@@ -112,7 +113,7 @@ export async function POST(req: NextRequest) {
     );
 
     if (!confirmationResult) {
-      console.error("Failed to send confirmation email");
+      logger.error("Failed to send confirmation email");
       // Don't fail the request - the main email was sent
     }
 
@@ -122,7 +123,7 @@ export async function POST(req: NextRequest) {
         "Your message has been sent successfully. We will get back to you soon.",
     });
   } catch (e) {
-    console.error("Contact form error:", e);
+    logger.error("Contact form error:", e);
     return error("Failed to process your request", 500);
   }
 }

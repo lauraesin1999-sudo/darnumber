@@ -3,6 +3,7 @@ import { prisma } from "@/lib/server/prisma";
 import { error, json } from "@/lib/server/utils/response";
 import { sendPasswordResetEmail } from "@/lib/server/services/email.service";
 import crypto from "crypto";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 
@@ -67,7 +68,7 @@ export async function POST(req: NextRequest) {
     );
 
     if (!emailResult) {
-      console.error("Failed to send password reset email");
+      logger.error("Failed to send password reset email");
       // Still return success to prevent information leakage
     }
 
@@ -77,7 +78,7 @@ export async function POST(req: NextRequest) {
         "If an account exists with this email, you will receive a password reset link.",
     });
   } catch (e) {
-    console.error("Password reset request error:", e);
+    logger.error("Password reset request error:", e);
     return error("Failed to process password reset request", 500);
   }
 }

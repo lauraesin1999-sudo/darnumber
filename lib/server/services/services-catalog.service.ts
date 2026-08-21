@@ -7,6 +7,7 @@
  *
  * Server keeps the country index in memory; clients never download the full matrix.
  */
+import { logger } from "@/lib/logger";
 
 import { PROVIDERS } from "@/lib/constants/providers";
 import { SMSManService } from "@/lib/server/services/order.service";
@@ -123,10 +124,10 @@ export async function buildAndCacheServices(): Promise<CatalogCacheStore | null>
   refreshInProgress = true;
   refreshPromise = (async () => {
     try {
-      console.log("[CatalogBuild] Starting split catalog build...");
+      logger.info("[CatalogBuild] Starting split catalog build...");
       const rubToUsdRate = await ExchangeRateService.getUsdToRubRate();
       const usdToNgnRate = await ExchangeRateService.getUsdToNgnRate();
-      console.log(
+      logger.info(
         `[CatalogBuild] Rates: 1 USD = ${rubToUsdRate} RUB, 1 USD = ${usdToNgnRate} NGN`,
       );
 
@@ -147,13 +148,13 @@ export async function buildAndCacheServices(): Promise<CatalogCacheStore | null>
         },
       ];
 
-      console.log("[CatalogBuild] Fetching provider services in parallel...");
+      logger.info("[CatalogBuild] Fetching provider services in parallel...");
       const [smsManResult, tvResult] = await Promise.allSettled([
         withTimeout(
           (async () => {
             const smsManService = new SMSManService();
             const services = await smsManService.getAvailableServices();
-            console.log(
+            logger.info(
               `[SMSMan] ✓ Fetched ${services.length} service×country rows`,
             );
             return services;
@@ -170,7 +171,7 @@ export async function buildAndCacheServices(): Promise<CatalogCacheStore | null>
               ...service,
               price: TV_DEFAULT_BASE_PRICE_USD,
             }));
-            console.log(
+            logger.info(
               `[Panda] ✓ Fetched ${services.length} services (baseline pricing)`,
             );
             return services;
@@ -183,7 +184,7 @@ export async function buildAndCacheServices(): Promise<CatalogCacheStore | null>
       const smsManServices =
         smsManResult.status === "fulfilled" ? smsManResult.value : [];
       if (smsManResult.status === "rejected") {
-        console.error(
+        logger.error(
           "[SMSMan] ✗ Error:",
           smsManResult.reason instanceof Error
             ? smsManResult.reason.message
@@ -193,7 +194,7 @@ export async function buildAndCacheServices(): Promise<CatalogCacheStore | null>
 
       const tvServices = tvResult.status === "fulfilled" ? tvResult.value : [];
       if (tvResult.status === "rejected") {
-        console.error(
+        logger.error(
           "[Panda] ✗ Error:",
           tvResult.reason instanceof Error
             ? tvResult.reason.message
@@ -202,7 +203,7 @@ export async function buildAndCacheServices(): Promise<CatalogCacheStore | null>
       }
 
       if (smsManServices.length === 0 && tvServices.length === 0) {
-        console.error(
+        logger.error(
           "[CatalogBuild] No services from any provider — skipping cache write",
         );
         return null;
@@ -251,7 +252,11 @@ export async function buildAndCacheServices(): Promise<CatalogCacheStore | null>
         });
         serviceMetadata.push({
           code,
-          name: service.serviceName || service.name || code,
+          name:
+            service.description ||
+            service.serviceName ||
+            service.name ||
+            code,
           country: "US",
           countryName: "United States",
           providerId: PROVIDERS.PANDA.id,
@@ -260,7 +265,7 @@ export async function buildAndCacheServices(): Promise<CatalogCacheStore | null>
         });
       });
 
-      console.log(
+      logger.info(
         `[CatalogBuild] Pricing ${servicesToPrice.length} rows (SMS-Man: ${smsManServices.length}, TV: ${tvServices.length})...`,
       );
       const pricingResults = await PricingService.calculatePrices(
@@ -369,14 +374,14 @@ export async function buildAndCacheServices(): Promise<CatalogCacheStore | null>
       // Only hard-cache when Lion (SMS-Man) data is present — partial builds
       // are still returned as one-off fallbacks.
       if (smsManServices.length === 0) {
-        console.warn(
+        logger.warn(
           "[CatalogBuild] SMS-Man empty — returning uncached fallback (not stored)",
         );
         return store;
       }
 
       memoryCache = store;
-      console.log(
+      logger.info(
         `[CatalogBuild] ✓ Cache built: ${catalog.services.length} unique services, ` +
           `${countriesIndex.size} provider×service country lists ` +
           `(raw rows: SMS-Man ${smsManServices.length}, TV ${tvServices.length})`,
@@ -407,7 +412,7 @@ function hasLionServices(cache: CatalogCacheStore): boolean {
  */
 async function buildSkeletonCatalog(): Promise<CatalogPayload | null> {
   try {
-    console.log("[Catalog] Building fast skeleton catalog...");
+    logger.info("[Catalog] Building fast skeleton catalog...");
     const [usdToNgnRate, rubToUsdRate, smsAppsResult, tvResult] =
       await Promise.all([
         ExchangeRateService.getUsdToNgnRate(),
@@ -417,7 +422,7 @@ async function buildSkeletonCatalog(): Promise<CatalogPayload | null> {
           "SMS-Man applications",
           15_000,
         ).catch((e) => {
-          console.warn("[Catalog] Skeleton SMS-Man apps failed:", e);
+          logger.warn("[Catalog] Skeleton SMS-Man apps failed:", e);
           return [] as Array<{ id: string; code: string; name: string }>;
         }),
         withTimeout(
@@ -425,7 +430,7 @@ async function buildSkeletonCatalog(): Promise<CatalogPayload | null> {
           "TextVerified services",
           15_000,
         ).catch((e) => {
-          console.warn("[Catalog] Skeleton Panda failed:", e);
+          logger.warn("[Catalog] Skeleton Panda failed:", e);
           return [] as Array<{ serviceName?: string; capability?: string }>;
         }),
       ]);
@@ -463,14 +468,16 @@ async function buildSkeletonCatalog(): Promise<CatalogPayload | null> {
           existing.capability = (svc as any).capability;
         }
       } else {
+        const display =
+          (svc as any).description || String(code);
         servicesMap.set(key, {
           code: String(code),
-          name: String(code),
+          name: display,
           capability: (svc as any).capability || "sms",
           ui: {
             logo: "📱",
             color: "bg-gray-200",
-            displayName: String(code),
+            displayName: display,
           },
           providers: [pandaMeta],
         });
@@ -508,12 +515,12 @@ async function buildSkeletonCatalog(): Promise<CatalogPayload | null> {
     };
 
     skeletonCatalog = catalog;
-    console.log(
+    logger.info(
       `[Catalog] ✓ Skeleton ready: ${catalog.services.length} unique services (no prices yet)`,
     );
     return catalog;
   } catch (e) {
-    console.error("[Catalog] Skeleton build failed:", e);
+    logger.error("[Catalog] Skeleton build failed:", e);
     return null;
   }
 }
@@ -530,12 +537,12 @@ export async function getServicesCatalog(): Promise<CatalogPayload | null> {
   if (memoryCache && isCacheFresh(memoryCache) && hasLionServices(memoryCache)) {
     const ageSeconds = (Date.now() - memoryCache.cachedAt) / 1000;
     if (ageSeconds > SERVICES_STALE_AFTER_SECONDS && !refreshInProgress) {
-      console.log(
+      logger.info(
         `[Catalog] Serving stale catalog (${Math.round(ageSeconds / 60)}min) — background refresh`,
       );
       void buildAndCacheServices();
     } else {
-      console.log(
+      logger.info(
         `[Catalog] ✓ Memory hit (${Math.round(ageSeconds / 60)}min, ${memoryCache.catalog.services.length} services)`,
       );
     }
@@ -544,14 +551,14 @@ export async function getServicesCatalog(): Promise<CatalogPayload | null> {
 
   // Poisoned / partial cache without Lion — discard
   if (memoryCache && !hasLionServices(memoryCache)) {
-    console.warn("[Catalog] Discarding cache without Lion services");
+    logger.warn("[Catalog] Discarding cache without Lion services");
     memoryCache = null;
   }
 
   // Full cache miss: serve skeleton immediately, build prices in background.
   // First request after deploy no longer blocks on the ~100k-row price matrix.
   if (skeletonCatalog && skeletonCatalog.services.length > 0) {
-    console.log(
+    logger.info(
       `[Catalog] ✓ Serving skeleton (${skeletonCatalog.services.length} services) — full index building`,
     );
     if (!refreshInProgress) {
@@ -560,7 +567,7 @@ export async function getServicesCatalog(): Promise<CatalogPayload | null> {
     return skeletonCatalog;
   }
 
-  console.log("[Catalog] Cold start — building skeleton then full index...");
+  logger.info("[Catalog] Cold start — building skeleton then full index...");
   const skeleton = await buildSkeletonCatalog();
 
   // Kick full build (prices + countries index) without blocking the catalog response
@@ -571,7 +578,7 @@ export async function getServicesCatalog(): Promise<CatalogPayload | null> {
   if (skeleton) return skeleton;
 
   // Skeleton failed — fall back to synchronous full build
-  console.log("[Catalog] Skeleton failed — falling back to full build...");
+  logger.info("[Catalog] Skeleton failed — falling back to full build...");
   const built = await buildAndCacheServices();
   return built?.catalog ?? null;
 }
@@ -589,7 +596,7 @@ export async function getCountriesForService(
 } | null> {
   // Ensure full countries index is available (may wait on first cold request)
   if (!memoryCache || !isCacheFresh(memoryCache) || !hasLionServices(memoryCache)) {
-    console.log(
+    logger.info(
       `[Catalog] Countries for ${serviceCode} need full index — waiting for build...`,
     );
     const built = await buildAndCacheServices();
