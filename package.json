@@ -13,7 +13,6 @@
   "engines": {
     "pnpm": ">=9"
   },
-  "packageManager": "pnpm@10",
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
     "@prisma/adapter-pg": "^7.1.0",
